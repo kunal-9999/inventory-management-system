@@ -18,6 +18,7 @@ interface Shipment {
   month: string
   date: string
   status: "pending" | "in_transit" | "delivered" | "cancelled"
+  link?: string
 }
 
 export default function ShipmentManagement() {
@@ -26,11 +27,13 @@ export default function ShipmentManagement() {
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [filterMonth, setFilterMonth] = useState<string>("all")
+  const [editingLink, setEditingLink] = useState<{ shipmentId: string; link: string } | null>(null)
+  const [viewingLink, setViewingLink] = useState<{ shipment: Shipment; content: string; loading: boolean } | null>(null)
 
   // Mock data for demonstration - in real app this would come from the product admin table
   const mockShipments: Shipment[] = []
 
-  useEffect(() => {
+  const refreshShipmentData = () => {
     // Extract shipment data from localStorage (from Products tab)
     const storedProductData = localStorage.getItem('inventoryProductData')
     
@@ -60,7 +63,8 @@ export default function ShipmentManagement() {
                     unit: row.unit,
                     month: monthLabel,
                     date: new Date().toISOString().split('T')[0], // Use current date for demo
-                    status: "delivered" // Default status for demo
+                    status: "delivered", // Default status for demo
+                    link: `https://app.gocomet.com/tracking/${shipment.shipment_number}` // Use GoComet tracking URL
                   })
                 })
               }
@@ -68,7 +72,30 @@ export default function ShipmentManagement() {
           }
         })
         
-        setShipments(allShipments)
+        // Clean up any malformed URLs in existing data
+        const cleanedShipments = allShipments.map(shipment => {
+          if (shipment.link) {
+            let cleanUrl = shipment.link.trim()
+            
+            // Fix common malformation patterns
+            if (cleanUrl.includes('http') && cleanUrl.indexOf('http') > 0) {
+              const httpIndex = cleanUrl.indexOf('http')
+              cleanUrl = cleanUrl.substring(httpIndex)
+            }
+            
+            // Validate the cleaned URL
+            const urlPattern = /^https?:\/\/[^\s]+$/i
+            if (!urlPattern.test(cleanUrl)) {
+              // If still invalid, use the default GoComet format
+              cleanUrl = `https://app.gocomet.com/tracking/${shipment.shipment_number}`
+            }
+            
+            return { ...shipment, link: cleanUrl }
+          }
+          return shipment
+        })
+        
+        setShipments(cleanedShipments)
       } catch (error) {
         console.error("Error parsing stored product data:", error)
         setShipments([])
@@ -78,6 +105,33 @@ export default function ShipmentManagement() {
     }
     
     setLoading(false)
+  }
+
+  useEffect(() => {
+    refreshShipmentData()
+  }, [])
+
+  useEffect(() => {
+    // Listen for localStorage changes to refresh shipment data
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'inventoryProductData') {
+        refreshShipmentData()
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+    
+    // Also listen for custom events (for same-tab updates)
+    const handleCustomStorageChange = () => {
+      refreshShipmentData()
+    }
+    
+    window.addEventListener('localStorageChange', handleCustomStorageChange)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('localStorageChange', handleCustomStorageChange)
+    }
   }, [])
 
   const filteredShipments = shipments.filter(shipment => {
@@ -125,9 +179,9 @@ export default function ShipmentManagement() {
 
   const handleExportShipments = () => {
     const csvContent = [
-      "Shipment Number,Product,Customer,Warehouse,Quantity,Unit,Month,Date,Status",
+      "Shipment Number,Product,Customer,Warehouse,Quantity,Unit,Month,Date,Status,Link",
       ...filteredShipments.map(shipment => 
-        `${shipment.shipment_number},${shipment.product_name},${shipment.customer_name},${shipment.warehouse_name},${shipment.quantity},${shipment.unit},${shipment.month},${shipment.date},${shipment.status}`
+        `${shipment.shipment_number},${shipment.product_name},${shipment.customer_name},${shipment.warehouse_name},${shipment.quantity},${shipment.unit},${shipment.month},${shipment.date},${shipment.status},${shipment.link || ''}`
       )
     ].join("\n")
 
@@ -140,6 +194,110 @@ export default function ShipmentManagement() {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+  }
+
+  const handleViewShipment = async (shipment: Shipment) => {
+    if (shipment.link) {
+      try {
+        setViewingLink({ shipment, content: '', loading: true })
+        
+        // Clean up the URL if it's malformed
+        let cleanUrl = shipment.link.trim()
+        
+        // Fix common malformation patterns
+        if (cleanUrl.includes('http') && cleanUrl.indexOf('http') > 0) {
+          // Extract the actual URL part
+          const httpIndex = cleanUrl.indexOf('http')
+          cleanUrl = cleanUrl.substring(httpIndex)
+        }
+        
+        // Validate the cleaned URL
+        const urlPattern = /^https?:\/\/[^\s]+$/i
+        if (!urlPattern.test(cleanUrl)) {
+          setViewingLink({ 
+            shipment, 
+            content: `Error: Invalid URL format detected. Please edit this link to fix the URL.\n\nCurrent URL: ${shipment.link}`, 
+            loading: false 
+          })
+          return
+        }
+        
+        console.log('Attempting to fetch URL:', cleanUrl) // Debug log
+        
+        // Fetch the content of the cleaned link
+        const response = await fetch(cleanUrl, {
+          method: 'GET',
+          mode: 'cors',
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (compatible; InventorySystem/1.0)'
+          }
+        })
+        
+        if (response.ok) {
+          const content = await response.text()
+          setViewingLink({ shipment, content, loading: false })
+        } else {
+          setViewingLink({ 
+            shipment, 
+            content: `Error: Unable to fetch content (Status: ${response.status})\n\nURL attempted: ${cleanUrl}`, 
+            loading: false 
+          })
+        }
+      } catch (error) {
+        console.error('Fetch error:', error) // Debug log
+        setViewingLink({ 
+          shipment, 
+          content: `Error: ${error instanceof Error ? error.message : 'Failed to fetch content'}\n\nURL attempted: ${shipment.link}`, 
+          loading: false 
+        })
+      }
+    } else {
+      // Fallback: show an alert if no link is available
+      alert(`No link available for shipment ${shipment.shipment_number}`)
+    }
+  }
+
+  const handleEditLink = (shipment: Shipment) => {
+    // If no link exists, suggest a default pattern
+    const defaultLink = shipment.link || `https://app.gocomet.com/tracking/${shipment.shipment_number}`
+    setEditingLink({ shipmentId: shipment.id, link: defaultLink })
+  }
+
+  const handleSaveLink = () => {
+    if (editingLink) {
+      // Enhanced URL validation
+      const urlPattern = /^https?:\/\/[^\s]+$/i
+      if (editingLink.link && !urlPattern.test(editingLink.link)) {
+        alert('Please enter a valid URL starting with http:// or https:// and without spaces or special characters')
+        return
+      }
+      
+      // Check for common URL malformation patterns
+      if (editingLink.link && editingLink.link.includes('http') && editingLink.link.indexOf('http') > 0) {
+        alert('Invalid URL format detected. Please ensure the URL starts with http:// or https://')
+        return
+      }
+      
+      const updatedShipments = shipments.map(shipment => 
+        shipment.id === editingLink.shipmentId 
+          ? { ...shipment, link: editingLink.link }
+          : shipment
+      )
+      setShipments(updatedShipments)
+      setEditingLink(null)
+      
+      // Show confirmation
+      console.log('Link updated successfully:', editingLink.link)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingLink(null)
+  }
+
+  const handleCloseView = () => {
+    setViewingLink(null)
   }
 
   if (loading) {
@@ -312,13 +470,14 @@ export default function ShipmentManagement() {
                       <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Month</th>
                       <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Date</th>
                       <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Status</th>
+                      <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Link</th>
                       <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredShipments.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="border border-slate-200 text-center p-8 text-slate-500 bg-white">
+                        <td colSpan={10} className="border border-slate-200 text-center p-8 text-slate-500 bg-white">
                           No shipments found matching your criteria.
                         </td>
                       </tr>
@@ -354,18 +513,36 @@ export default function ShipmentManagement() {
                             </span>
                           </td>
                           <td className="border border-slate-200 p-3 text-center">
+                            {shipment.link ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                                🔗 Available
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
+                                No Link
+                              </span>
+                            )}
+                          </td>
+                          <td className="border border-slate-200 p-3 text-center">
                             <div className="flex gap-2 justify-center">
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-8 px-3 text-xs border-slate-200 text-slate-600 hover:bg-slate-50"
+                                className={`h-8 px-3 text-xs ${
+                                  shipment.link 
+                                    ? "border-green-200 text-green-600 hover:bg-green-50" 
+                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                }`}
+                                onClick={() => handleViewShipment(shipment)}
+                                title={shipment.link ? `View content from ${shipment.link}` : "No link available"}
                               >
-                                View
+                                {shipment.link ? "🔗 View Content" : "View"}
                               </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="h-8 px-3 text-xs border-blue-200 text-blue-600 hover:bg-blue-50"
+                                onClick={() => handleEditLink(shipment)}
                               >
                                 Edit
                               </Button>
@@ -379,6 +556,118 @@ export default function ShipmentManagement() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Link Edit Modal */}
+          {editingLink && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-96 max-w-md">
+                <h3 className="text-lg font-semibold text-slate-800 mb-4">Edit Shipment Link</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Link URL
+                    </label>
+                    <Input
+                      type="url"
+                      value={editingLink.link}
+                      onChange={(e) => setEditingLink({ ...editingLink, link: e.target.value })}
+                      placeholder="https://app.gocomet.com/tracking/..."
+                      className="w-full"
+                    />
+                    <div className="mt-1 text-xs text-slate-500">
+                      Current value: {editingLink.link || 'No link set'}
+                    </div>
+                  </div>
+                  <div className="flex gap-3 justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={handleCancelEdit}
+                      className="text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSaveLink}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Link View Modal */}
+          {viewingLink && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-11/12 h-5/6 max-w-6xl max-h-[90vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold text-slate-800">
+                    Viewing: {viewingLink.shipment.shipment_number} - {viewingLink.shipment.product_name}
+                  </h3>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open(viewingLink.shipment.link, '_blank', 'noopener,noreferrer')}
+                      className="text-blue-600 hover:bg-blue-50"
+                    >
+                      Open in New Tab
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCloseView}
+                      className="text-slate-600 hover:bg-slate-50"
+                    >
+                      Close
+                    </Button>
+                  </div>
+                </div>
+                
+                <div className="flex-1 overflow-hidden">
+                  {viewingLink.loading ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center space-y-4">
+                        <div className="w-16 h-16 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin mx-auto"></div>
+                        <div className="text-lg font-semibold text-slate-700">Loading content...</div>
+                        <div className="text-sm text-slate-500">Fetching content from {viewingLink.shipment.link}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-full overflow-auto">
+                      <div className="mb-4 p-3 bg-slate-50 rounded-lg">
+                        <div className="text-sm text-slate-600">
+                          <strong>Source:</strong> {viewingLink.shipment.link}
+                        </div>
+                        {viewingLink.content.includes('Invalid URL format') && (
+                          <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-amber-800 text-xs">
+                            💡 <strong>Tip:</strong> This URL appears to be malformed. Click "Edit" to fix the URL format.
+                          </div>
+                        )}
+                        {!viewingLink.loading && !viewingLink.content.includes('Error:') && (
+                          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-green-800 text-xs">
+                            ✅ <strong>Success:</strong> Content fetched successfully from the URL above.
+                          </div>
+                        )}
+                      </div>
+                                              <div className="border border-slate-200 rounded-lg p-4 bg-white">
+                          {viewingLink.content.includes('Error:') && (
+                            <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-800 text-xs">
+                              🔍 <strong>Debug Info:</strong> Check the browser console for more details about the fetch attempt.
+                            </div>
+                          )}
+                          <pre className="text-sm text-slate-800 whitespace-pre-wrap break-words overflow-x-auto">
+                            {viewingLink.content}
+                          </pre>
+                        </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Info Box */}
           <Card className="mt-8 bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200">

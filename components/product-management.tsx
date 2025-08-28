@@ -509,6 +509,15 @@ export default function ProductManagement() {
     setFilteredRows(newFilteredRows)
   }, [searchQuery, productRows])
 
+  useEffect(() => {
+    // Update localStorage whenever productRows changes so other tabs can access updated data
+    if (productRows.length > 0) {
+      localStorage.setItem('inventoryProductData', JSON.stringify(productRows))
+      // Dispatch custom event to notify other components in the same window
+      window.dispatchEvent(new Event('localStorageChange'))
+    }
+  }, [productRows])
+
   const groupProductsByName = (rows: ProductRow[], updatedRowIndex: number, newProductName: string) => {
     if (!newProductName.trim()) return rows
 
