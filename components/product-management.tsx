@@ -52,7 +52,7 @@ export default function ProductManagement() {
   const [redoStack, setRedoStack] = useState<ProductRow[][]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [loading, setLoading] = useState(true)
-  const [pageZoomLevel, setPageZoomLevel] = useState(100)
+
   const [tableZoomLevel, setTableZoomLevel] = useState(60)
   const selectedYear = new Date().getFullYear()
   const [editingCells, setEditingCells] = useState<Set<string>>(new Set())
@@ -119,9 +119,370 @@ export default function ProductManagement() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      setProductRows([])
-      setCustomers([])
-      setWarehouses([])
+      // Mock data for demonstration
+      const mockProductRows: ProductRow[] = [
+        {
+          id: "1",
+          product: { id: "p1", name: "INGREDIENT A", unit: "Kgs" },
+          customer: { id: "c1", name: "Customer Alpha" },
+          warehouse: { id: "w1", name: "WAREHOUSE NORTH" },
+          unit: "Kgs",
+          annual_volume: 50000,
+          monthly_sales: {
+            "dec24": 1000, // Dec sales as per your example
+            "jan25": 1350,
+            "feb25": 1100,
+            "mar25": 1400,
+            "apr25": 1250,
+            "may25": 1300,
+            "jun25": 1150,
+            "jul25": 1450,
+            "aug25": 1200,
+            "sep25": 1350,
+            "oct25": 1100,
+            "nov25": 1250,
+            "dec25": 1400
+          },
+          monthly_shipments: {
+            "dec24": [
+              { shipment_number: "SH-001", quantity: 24000 } // Total shipment quantity as per your example
+            ],
+            "jan25": [
+              { shipment_number: "SH-003", quantity: 1200 },
+              { shipment_number: "SH-004", quantity: 900 }
+            ],
+            "feb25": [
+              { shipment_number: "SH-005", quantity: 1000 }
+            ],
+            "mar25": [
+              { shipment_number: "SH-006", quantity: 1400 },
+              { shipment_number: "SH-007", quantity: 600 }
+            ],
+            "apr25": [
+              { shipment_number: "SH-008", quantity: 1100 }
+            ],
+            "may25": [
+              { shipment_number: "SH-009", quantity: 1300 }
+            ],
+            "jun25": [
+              { shipment_number: "SH-010", quantity: 1000 },
+              { shipment_number: "SH-011", quantity: 500 }
+            ],
+            "jul25": [
+              { shipment_number: "SH-012", quantity: 1200 }
+            ],
+            "aug25": [
+              { shipment_number: "SH-013", quantity: 1000 }
+            ],
+            "sep25": [
+              { shipment_number: "SH-014", quantity: 1200 }
+            ],
+            "oct25": [
+              { shipment_number: "SH-015", quantity: 900 }
+            ],
+            "nov25": [
+              { shipment_number: "SH-016", quantity: 1100 }
+            ],
+            "dec25": [
+              { shipment_number: "SH-017", quantity: 1300 }
+            ]
+          },
+          monthly_opening_stock: {
+            "dec24": 10000, // Starting opening stock as per your example
+            // Expected calculation: Dec closing stock = 10000 + 24000 - 1000 = 33000
+            // Jan opening stock should auto-calculate to 33000
+          },
+          monthly_closing_stock: {},
+          opening_stock: 5000,
+          closing_stock: 4700,
+          total_sales: 15000,
+          isEditing: false,
+          isNew: false
+        },
+        {
+          id: "2",
+          product: { id: "p1", name: "INGREDIENT A", unit: "Kgs" },
+          customer: { id: "c2", name: "Customer Beta" },
+          warehouse: { id: "w1", name: "WAREHOUSE NORTH" },
+          unit: "Kgs",
+          annual_volume: 30000,
+          monthly_sales: {
+            "dec24": 800,
+            "jan25": 900,
+            "feb25": 750,
+            "mar25": 950,
+            "apr25": 850,
+            "may25": 900,
+            "jun25": 800,
+            "jul25": 1000,
+            "aug25": 850,
+            "sep25": 950,
+            "oct25": 800,
+            "nov25": 900,
+            "dec25": 950
+          },
+          monthly_shipments: {
+            "dec24": [
+              { shipment_number: "SH-018", quantity: 1000 }
+            ],
+            "jan25": [
+              { shipment_number: "SH-019", quantity: 900 }
+            ],
+            "feb25": [
+              { shipment_number: "SH-020", quantity: 800 }
+            ],
+            "mar25": [
+              { shipment_number: "SH-021", quantity: 1000 }
+            ],
+            "apr25": [
+              { shipment_number: "SH-022", quantity: 900 }
+            ],
+            "may25": [
+              { shipment_number: "SH-023", quantity: 950 }
+            ],
+            "jun25": [
+              { shipment_number: "SH-024", quantity: 850 }
+            ],
+            "jul25": [
+              { shipment_number: "SH-025", quantity: 1000 }
+            ],
+            "aug25": [
+              { shipment_number: "SH-026", quantity: 900 }
+            ],
+            "sep25": [
+              { shipment_number: "SH-027", quantity: 950 }
+            ],
+            "oct25": [
+              { shipment_number: "SH-028", quantity: 800 }
+            ],
+            "nov25": [
+              { shipment_number: "SH-029", quantity: 900 }
+            ],
+            "dec25": [
+              { shipment_number: "SH-030", quantity: 950 }
+            ]
+          },
+          monthly_opening_stock: {
+            "dec24": 3000,
+            "jan25": 3200,
+            "feb25": 3200,
+            "mar25": 3250,
+            "apr25": 3300,
+            "may25": 3250,
+            "jun25": 3200,
+            "jul25": 3150,
+            "aug25": 3150,
+            "sep25": 3100,
+            "oct25": 3100,
+            "nov25": 3000,
+            "dec25": 3100
+          },
+          monthly_closing_stock: {},
+          opening_stock: 3000,
+          closing_stock: 3100,
+          total_sales: 10500,
+          isEditing: false,
+          isNew: false
+        },
+        {
+          id: "3",
+          product: { id: "p2", name: "INGREDIENT B", unit: "Kgs" },
+          customer: { id: "c3", name: "Customer Gamma" },
+          warehouse: { id: "w2", name: "WAREHOUSE SOUTH" },
+          unit: "Kgs",
+          annual_volume: 40000,
+          monthly_sales: {
+            "dec24": 1000,
+            "jan25": 1100,
+            "feb25": 950,
+            "mar25": 1150,
+            "apr25": 1050,
+            "may25": 1100,
+            "jun25": 1000,
+            "jul25": 1200,
+            "aug25": 1050,
+            "sep25": 1150,
+            "oct25": 1000,
+            "nov25": 1100,
+            "dec25": 1150
+          },
+          monthly_shipments: {
+            "dec24": [
+              { shipment_number: "SH-031", quantity: 1200 }
+            ],
+            "jan25": [
+              { shipment_number: "SH-032", quantity: 1100 }
+            ],
+            "feb25": [
+              { shipment_number: "SH-033", quantity: 1000 }
+            ],
+            "mar25": [
+              { shipment_number: "SH-034", quantity: 1200 }
+            ],
+            "apr25": [
+              { shipment_number: "SH-035", quantity: 1100 }
+            ],
+            "may25": [
+              { shipment_number: "SH-036", quantity: 1150 }
+            ],
+            "jun25": [
+              { shipment_number: "SH-037", quantity: 1050 }
+            ],
+            "jul25": [
+              { shipment_number: "SH-038", quantity: 1200 }
+            ],
+            "aug25": [
+              { shipment_number: "SH-039", quantity: 1100 }
+            ],
+            "sep25": [
+              { shipment_number: "SH-040", quantity: 1150 }
+            ],
+            "oct25": [
+              { shipment_number: "SH-041", quantity: 1000 }
+            ],
+            "nov25": [
+              { shipment_number: "SH-042", quantity: 1100 }
+            ],
+            "dec25": [
+              { shipment_number: "SH-043", quantity: 1150 }
+            ]
+          },
+          monthly_opening_stock: {
+            "dec24": 4000,
+            "jan25": 4200,
+            "feb25": 4250,
+            "mar25": 4300,
+            "apr25": 4350,
+            "may25": 4400,
+            "jun25": 4350,
+            "jul25": 4300,
+            "aug25": 4250,
+            "sep25": 4200,
+            "oct25": 4150,
+            "nov25": 4100,
+            "dec25": 4050
+          },
+          monthly_closing_stock: {},
+          opening_stock: 4000,
+          closing_stock: 4050,
+          total_sales: 13000,
+          isEditing: false,
+          isNew: false
+        },
+        {
+          id: "4",
+          product: { id: "p3", name: "INGREDIENT C", unit: "Lbs" },
+          customer: { id: "c4", name: "Customer Delta" },
+          warehouse: { id: "w3", name: "WAREHOUSE EAST" },
+          unit: "Lbs",
+          annual_volume: 25000,
+          monthly_sales: {
+            "dec24": 600,
+            "jan25": 650,
+            "feb25": 600,
+            "mar25": 700,
+            "apr25": 650,
+            "may25": 700,
+            "jun25": 600,
+            "jul25": 750,
+            "aug25": 650,
+            "sep25": 700,
+            "oct25": 600,
+            "nov25": 650,
+            "dec25": 700
+          },
+          monthly_shipments: {
+            "dec24": [
+              { shipment_number: "SH-044", quantity: 800 }
+            ],
+            "jan25": [
+              { shipment_number: "SH-045", quantity: 700 }
+            ],
+            "feb25": [
+              { shipment_number: "SH-046", quantity: 650 }
+            ],
+            "mar25": [
+              { shipment_number: "SH-047", quantity: 750 }
+            ],
+            "apr25": [
+              { shipment_number: "SH-048", quantity: 700 }
+            ],
+            "may25": [
+              { shipment_number: "SH-049", quantity: 750 }
+            ],
+            "jun25": [
+              { shipment_number: "SH-050", quantity: 650 }
+            ],
+            "jul25": [
+              { shipment_number: "SH-051", quantity: 800 }
+            ],
+            "aug25": [
+              { shipment_number: "SH-052", quantity: 700 }
+            ],
+            "sep25": [
+              { shipment_number: "SH-053", quantity: 750 }
+            ],
+            "oct25": [
+              { shipment_number: "SH-054", quantity: 650 }
+            ],
+            "nov25": [
+              { shipment_number: "SH-055", quantity: 700 }
+            ],
+            "dec25": [
+              { shipment_number: "SH-056", quantity: 750 }
+            ]
+          },
+          monthly_opening_stock: {
+            "dec24": 2000,
+            "jan25": 2200,
+            "feb25": 2250,
+            "mar25": 2300,
+            "apr25": 2350,
+            "may25": 2400,
+            "jun25": 2350,
+            "jul25": 2300,
+            "aug25": 2250,
+            "sep25": 2200,
+            "oct25": 2150,
+            "nov25": 2100,
+            "dec25": 2050
+          },
+          monthly_closing_stock: {},
+          opening_stock: 2000,
+          closing_stock: 2050,
+          total_sales: 8000,
+          isEditing: false,
+          isNew: false
+        }
+      ]
+
+      const mockCustomers: Customer[] = [
+        { id: "c1", name: "Customer Alpha" },
+        { id: "c2", name: "Customer Beta" },
+        { id: "c3", name: "Customer Gamma" },
+        { id: "c4", name: "Customer Delta" }
+      ]
+
+      const mockWarehouses: Warehouse[] = [
+        { id: "w1", name: "WAREHOUSE NORTH" },
+        { id: "w2", name: "WAREHOUSE SOUTH" },
+        { id: "w3", name: "WAREHOUSE EAST" }
+      ]
+
+      setProductRows(mockProductRows)
+      setCustomers(mockCustomers)
+      setWarehouses(mockWarehouses)
+      
+      // Save to localStorage so other tabs can access this data
+      localStorage.setItem('inventoryProductData', JSON.stringify(mockProductRows))
+      localStorage.setItem('inventoryCustomerData', JSON.stringify(mockCustomers))
+      localStorage.setItem('inventoryWarehouseData', JSON.stringify(mockWarehouses))
+      
+      // Calculate stock values for the mock data
+      setTimeout(() => {
+        calculateStockValues(mockProductRows)
+      }, 100)
+      
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
@@ -333,30 +694,33 @@ export default function ProductManagement() {
       return row
     })
 
-    // Recalculate closing stock for affected rows
+    // Recalculate closing stock for affected rows using the new formula
     const calculateStockForRow = (rows: ProductRow[], rowIndex: number) => {
       const row = rows[rowIndex]
 
       // Calculate closing stock for each month and carry forward to next month
-      months.forEach((month, index) => {
-        const monthKey = month.key
+      months.forEach((month, monthIndex) => {
+        const currentMonthKey = month.key
 
         // Get values for calculation
-        const openingStock = row.monthly_opening_stock[monthKey] || 0
-        const sales = row.monthly_sales[monthKey] || 0
+        const openingStock = row.monthly_opening_stock[currentMonthKey] || 0
+        const sales = row.monthly_sales[currentMonthKey] || 0
 
         // Calculate total shipment quantity for this month
-        const shipments = row.monthly_shipments[monthKey] || []
+        const shipments = row.monthly_shipments[currentMonthKey] || []
         const totalShipmentQuantity = shipments.reduce((sum, shipment) => sum + shipment.quantity, 0)
 
         // Calculate closing stock: Opening Stock + Shipments - Sales
         const closingStock = openingStock + totalShipmentQuantity - sales
-        row.monthly_closing_stock[monthKey] = closingStock
+        row.monthly_closing_stock[currentMonthKey] = closingStock
 
-        // Carry forward closing stock to next month's opening stock
-        if (index < months.length - 1) {
-          const nextMonthKey = months[index + 1].key
-          row.monthly_opening_stock[nextMonthKey] = closingStock
+        // Carry forward closing stock to next month's opening stock (if not manually set)
+        if (monthIndex < months.length - 1) {
+          const nextMonthKey = months[monthIndex + 1].key
+          // Only auto-set opening stock if it hasn't been manually entered
+          if (row.monthly_opening_stock[nextMonthKey] === undefined || row.monthly_opening_stock[nextMonthKey] === 0) {
+            row.monthly_opening_stock[nextMonthKey] = closingStock
+          }
         }
       })
     }
@@ -428,6 +792,15 @@ export default function ProductManagement() {
   }, [])
 
   const calculateStockValues = useCallback((rows: ProductRow[]) => {
+    // Stock Calculation Logic:
+    // 1. Closing Stock = Opening Stock + Total Shipments - Sales
+    // 2. Next month's Opening Stock = Previous month's Closing Stock (auto-calculated)
+    // 3. Manual opening stock entries override auto-calculation
+    // 
+    // Example: Dec sales = 1000, shipments = 24000, opening stock = 10000
+    // Closing stock = 10000 + 24000 - 1000 = 33000
+    // Jan opening stock = 33000 (auto-calculated)
+    
     // Ensure rows is an array before proceeding
     if (!Array.isArray(rows)) {
       console.log("[v0] calculateStockValues called with non-array:", rows)
@@ -453,50 +826,40 @@ export default function ProductManagement() {
 
       const updatedRow = { ...row }
 
-      // Calculate monthly closing stock for each month
-      months.forEach((month) => {
-        const openingStock = updatedRow.monthly_opening_stock[month.key] || 0
-        const sales = updatedRow.monthly_sales[month.key] || 0
-        const shipments = updatedRow.monthly_shipments[month.key] || []
-        const totalShipments = shipments.reduce((sum, shipment) => sum + (shipment.quantity || 0), 0)
-
-        updatedRow.monthly_closing_stock[month.key] = openingStock + totalShipments - sales
+      // Calculate closing stock for each month using the formula: Closing Stock = Opening Stock + Shipments - Sales
+      months.forEach((month, monthIndex) => {
+        const monthKey = month.key
+        
+        // Get opening stock for this month
+        const openingStock = updatedRow.monthly_opening_stock[monthKey] || 0
+        
+        // Get sales for this month
+        const sales = updatedRow.monthly_sales[monthKey] || 0
+        
+        // Calculate total shipment quantity for this month
+        const shipments = updatedRow.monthly_shipments[monthKey] || []
+        const totalShipmentQuantity = shipments.reduce((sum, shipment) => sum + (shipment.quantity || 0), 0)
+        
+        // Calculate closing stock: Opening Stock + Shipments - Sales
+        const closingStock = openingStock + totalShipmentQuantity - sales
+        updatedRow.monthly_closing_stock[monthKey] = closingStock
+        
+        // Carry forward closing stock to next month's opening stock (if not manually set)
+        if (monthIndex < months.length - 1) {
+          const nextMonthKey = months[monthIndex + 1].key
+          // Only auto-set opening stock if it hasn't been manually entered
+          if (updatedRow.monthly_opening_stock[nextMonthKey] === undefined || updatedRow.monthly_opening_stock[nextMonthKey] === 0) {
+            updatedRow.monthly_opening_stock[nextMonthKey] = closingStock
+          }
+        }
       })
 
       return updatedRow
     })
 
-    const finalRows = updatedRows.map((row) => {
-      const updatedRow = { ...row }
-
-      // Apply carryover logic: closing stock of current month becomes opening stock of next month
-      for (let i = 0; i < months.length - 1; i++) {
-        const currentMonth = months[i].key
-        const nextMonth = months[i + 1].key
-        const closingStock = updatedRow.monthly_closing_stock[currentMonth] || 0
-
-        // Only update if the next month's opening stock is 0 or undefined (not manually set)
-        if (!updatedRow.monthly_opening_stock[nextMonth]) {
-          updatedRow.monthly_opening_stock[nextMonth] = closingStock
-
-          // Recalculate closing stock for the next month after updating opening stock
-          const nextMonthSales = updatedRow.monthly_sales[nextMonth] || 0
-          const nextMonthShipments = updatedRow.monthly_shipments[nextMonth] || []
-          const nextMonthTotalShipments = nextMonthShipments.reduce(
-            (sum, shipment) => sum + (shipment.quantity || 0),
-            0,
-          )
-
-          updatedRow.monthly_closing_stock[nextMonth] = closingStock + nextMonthTotalShipments - nextMonthSales
-        }
-      }
-
-      return updatedRow
-    })
-
     // Don't trigger undo save for automatic calculations
-    setProductRows(finalRows)
-    return finalRows
+    setProductRows(updatedRows)
+    return updatedRows
   }, [])
 
   const updateCellValue = useCallback(
@@ -890,6 +1253,7 @@ export default function ProductManagement() {
     setProductRows(updatedRows)
     setEditingShipment(null)
 
+    // Recalculate stock values when shipments change
     setTimeout(() => calculateStockValues(updatedRows), 50)
   }
 
@@ -921,6 +1285,9 @@ export default function ProductManagement() {
       updatedRows[actualRowIndex].monthly_shipments[monthKey] =
         updatedRows[actualRowIndex].monthly_shipments[monthKey]?.filter((_, index) => index !== shipmentIndex) || []
       setProductRows(updatedRows)
+      
+      // Recalculate stock values when shipments are deleted
+      setTimeout(() => calculateStockValues(updatedRows), 50)
     }
   }
 
@@ -1338,40 +1705,48 @@ export default function ProductManagement() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-black">Loading product data...</div>
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin mx-auto"></div>
+          <div className="text-lg font-semibold text-slate-700">Loading product data...</div>
+          <div className="text-sm text-slate-500">Please wait while we fetch your inventory information</div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div style={{ transform: `scale(${pageZoomLevel / 100})`, transformOrigin: "top left" }}>
-      <Card className="shadow-none border-none">
-        <CardContent className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-black">Product Admin</h1>
+    <div>
+      <Card className="shadow-lg border-0 bg-gradient-to-br from-white to-gray-50">
+        <CardContent className="p-8">
+          <div className="flex justify-between items-center mb-8">
+            <div className="space-y-2">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Product Admin</h1>
+              <p className="text-slate-600 text-sm font-medium">Manage your inventory and product data</p>
+            </div>
 
             <div className="flex items-center gap-6">
               {/* Search and Actions Group */}
-              <div className="flex items-center gap-2 p-1 bg-gray-50 rounded-lg border">
+              <div className="flex items-center gap-3 p-2 bg-white rounded-xl border border-slate-200 shadow-sm">
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={handleSearchClick}
-                  className="hover:bg-white hover:shadow-sm transition-all"
+                  className="hover:bg-slate-100 hover:text-slate-700 transition-all duration-200 rounded-lg"
                 >
-                  <Search className="h-4 w-4" />
+                  <Search className="h-4 w-4 text-slate-600" />
                 </Button>
 
-                <div className="w-px h-6 bg-gray-300" />
+                <div className="w-px h-6 bg-slate-200" />
 
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={handleUndo}
                   disabled={undoStack.length === 0}
-                  className="hover:bg-white hover:shadow-sm transition-all disabled:opacity-50"
+                  className="hover:bg-slate-100 hover:text-slate-700 transition-all duration-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Undo"
                 >
-                  <RotateCcw className="h-4 w-4" />
+                  <RotateCcw className="h-4 w-4 text-slate-600" />
                 </Button>
 
                 <Button
@@ -1379,9 +1754,10 @@ export default function ProductManagement() {
                   size="sm"
                   onClick={handleRedo}
                   disabled={redoStack.length === 0}
-                  className="hover:bg-white hover:shadow-sm transition-all disabled:opacity-50"
+                  className="hover:bg-slate-100 hover:text-slate-700 transition-all duration-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Redo"
                 >
-                  <RotateCw className="h-4 w-4" />
+                  <RotateCw className="h-4 w-4 text-slate-600" />
                 </Button>
               </div>
 
@@ -1390,7 +1766,7 @@ export default function ProductManagement() {
                 variant="outline"
                 size="sm"
                 onClick={handleExportExcel}
-                className="bg-white border-blue-200 text-blue-700 hover:bg-blue-50 hover:border-blue-300 transition-all shadow-sm"
+                className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-800 transition-all duration-200 shadow-sm rounded-lg font-medium"
               >
                 <Download className="h-4 w-4 mr-2" />
                 Export to Excel
@@ -1400,92 +1776,25 @@ export default function ProductManagement() {
               <Button
                 size="sm"
                 onClick={handleAddProduct}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md hover:shadow-lg transition-all px-6"
+                className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-2 rounded-xl font-semibold"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Add Product
               </Button>
 
-              {/* Page Zoom Controls */}
-              <div className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border">
-                <span className="text-xs font-medium text-gray-600">Page</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setPageZoomLevel(Math.max(50, pageZoomLevel - 10))}
-                  className="h-7 w-7 p-0 hover:bg-white hover:shadow-sm transition-all"
-                >
-                  <Minus className="h-3 w-3" />
-                </Button>
 
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-16 h-1.5 bg-gray-200 rounded-full relative cursor-pointer"
-                    onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      const clickX = e.clientX - rect.left
-                      const percentage = Math.max(50, Math.min(150, (clickX / rect.width) * 100 + 50))
-                      setPageZoomLevel(Math.round(percentage))
-                    }}
-                  >
-                    <div
-                      className="h-1.5 bg-blue-500 rounded-full transition-all"
-                      style={{ width: `${((pageZoomLevel - 50) / 100) * 100}%` }}
-                    />
-                    <div
-                      className="absolute top-0 w-3 h-3 bg-blue-500 rounded-full transform -translate-y-0.5 cursor-grab active:cursor-grabbing shadow-sm"
-                      style={{ left: `calc(${((pageZoomLevel - 50) / 100) * 100}% - 6px)` }}
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        const slider = e.currentTarget.parentElement
-                        const handleMouseMove = (moveEvent: MouseEvent) => {
-                          const rect = slider!.getBoundingClientRect()
-                          const moveX = moveEvent.clientX - rect.left
-                          const percentage = Math.max(50, Math.min(150, (moveX / rect.width) * 100 + 50))
-                          setPageZoomLevel(Math.round(percentage))
-                        }
-                        const handleMouseUp = () => {
-                          document.removeEventListener("mousemove", handleMouseMove)
-                          document.removeEventListener("mouseup", handleMouseUp)
-                        }
-                        document.addEventListener("mousemove", handleMouseMove)
-                        document.addEventListener("mouseup", handleMouseUp)
-                      }}
-                    />
-                  </div>
-                  <span className="text-xs font-medium text-gray-700 min-w-[32px]">{pageZoomLevel}%</span>
-                </div>
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setPageZoomLevel(Math.min(150, pageZoomLevel + 10))}
-                  className="h-7 w-7 p-0 hover:bg-white hover:shadow-sm transition-all"
-                >
-                  <Minus className="h-3 w-3" />
-                </Button>
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setPageZoomLevel(100)}
-                  className="text-xs px-2 h-7 hover:bg-white hover:shadow-sm transition-all"
-                >
-                  Reset
-                </Button>
-              </div>
             </div>
 
             {/* Search Query Display */}
             {searchQuery && (
-              <div className="absolute top-20 right-6 flex items-center gap-1 px-3 py-1.5 bg-blue-100 border border-blue-200 rounded-lg text-sm shadow-sm">
-                <Search className="h-3 w-3 text-blue-600" />
-                <span className="text-blue-800">"{searchQuery}"</span>
+              <div className="absolute top-24 right-8 flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl text-sm shadow-lg backdrop-blur-sm">
+                <Search className="h-4 w-4 text-indigo-600" />
+                <span className="text-indigo-800 font-medium">"{searchQuery}"</span>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setSearchQuery("")}
-                  className="h-5 w-5 p-0 hover:bg-blue-200 ml-1"
+                  className="h-6 w-6 p-0 hover:bg-indigo-100 hover:text-indigo-700 ml-1 rounded-lg transition-all duration-200"
                 >
                   <X className="h-3 w-3" />
                 </Button>
@@ -1494,37 +1803,53 @@ export default function ProductManagement() {
           </div>
 
           {!canUseSupabase() && (
-            <div className="border border-amber-200 bg-amber-50 p-4 rounded">
-              <div className="text-black">
-                <strong>Demo Mode:</strong> Supabase is not configured. Using mock data for demonstration. Please
-                configure your environment variables in Project Settings to use live data.
+            <div className="border border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50 p-6 rounded-xl shadow-sm mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
+                <div className="text-amber-800">
+                  <strong className="font-semibold">Demo Mode:</strong> Supabase is not configured. Using mock data for demonstration. Please
+                  configure your environment variables in Project Settings to use live data.
+                </div>
               </div>
             </div>
           )}
 
           {duplicateAlert && (
-            <div className="border border-red-200 bg-red-50 p-4 rounded">
-              <div className="text-red-800 font-medium">⚠️ {duplicateAlert}</div>
+            <div className="border border-red-200 bg-gradient-to-r from-red-50 to-pink-50 p-4 rounded-xl shadow-sm mb-6">
+              <div className="flex items-center gap-3 text-red-800 font-medium">
+                <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs font-bold">!</span>
+                </div>
+                ⚠️ {duplicateAlert}
+              </div>
             </div>
           )}
 
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-black">Rows ({filteredRows.length})</span>
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-2 bg-slate-100 rounded-lg border border-slate-200">
+                <span className="text-sm font-semibold text-slate-700">Total Rows: <span className="text-indigo-600">{filteredRows.length}</span></span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-lg border">
-            <span className="text-sm font-medium text-gray-700">Table Zoom:</span>
+          <div className="flex items-center gap-4 mb-6 p-4 bg-gradient-to-r from-slate-50 to-gray-50 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-indigo-500 rounded-full"></div>
+              <span className="text-sm font-semibold text-slate-700">Table Zoom:</span>
+            </div>
+            
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setTableZoomLevel(Math.max(20, tableZoomLevel - 10))}
-              className="h-7 w-7 p-0 hover:bg-white hover:shadow-sm transition-all"
+              className="h-8 w-8 p-0 hover:bg-white hover:shadow-lg transition-all duration-200 rounded-lg border border-slate-200"
             >
-              <Minus className="h-3 w-3" />
+              <Minus className="h-4 w-4 text-slate-600" />
             </Button>
 
             <div
-              className="w-20 h-1.5 bg-gray-200 rounded-full relative cursor-pointer"
+              className="w-24 h-2 bg-slate-200 rounded-full relative cursor-pointer shadow-inner"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect()
                 const clickX = e.clientX - rect.left
@@ -1532,10 +1857,10 @@ export default function ProductManagement() {
                 setTableZoomLevel(Math.round(percentage))
               }}
             >
-              <div className="h-1.5 bg-green-500 rounded-full transition-all" style={{ width: `${tableZoomLevel}%` }} />
+              <div className="h-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-200" style={{ width: `${tableZoomLevel}%` }} />
               <div
-                className="absolute top-0 w-3 h-3 bg-green-500 rounded-full transform -translate-y-0.5 cursor-grab active:cursor-grabbing shadow-sm"
-                style={{ left: `calc(${tableZoomLevel}% - 6px)` }}
+                className="absolute top-0 w-4 h-4 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transform -translate-y-1 cursor-grab active:cursor-grabbing shadow-lg border-2 border-white"
+                style={{ left: `calc(${tableZoomLevel}% - 8px)` }}
                 onMouseDown={(e) => {
                   e.preventDefault()
                   const slider = e.currentTarget.parentElement
@@ -1559,24 +1884,26 @@ export default function ProductManagement() {
               variant="ghost"
               size="sm"
               onClick={() => setTableZoomLevel(Math.min(100, tableZoomLevel + 10))}
-              className="h-7 w-7 p-0 hover:bg-white hover:shadow-sm transition-all"
+              className="h-8 w-8 p-0 hover:bg-white hover:shadow-lg transition-all duration-200 rounded-lg border border-slate-200"
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="h-4 w-4 text-slate-600" />
             </Button>
 
-            <span className="text-sm font-medium text-gray-700 min-w-[32px]">{tableZoomLevel}%</span>
+            <div className="px-3 py-1 bg-white rounded-lg border border-slate-200 shadow-sm">
+              <span className="text-sm font-bold text-slate-700 min-w-[32px]">{tableZoomLevel}%</span>
+            </div>
 
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={() => setTableZoomLevel(60)}
-              className="text-xs px-2 h-7 hover:bg-white hover:shadow-sm transition-all"
+              className="text-xs px-3 h-8 hover:bg-slate-100 hover:border-slate-300 transition-all duration-200 rounded-lg font-medium"
             >
               Reset
             </Button>
           </div>
 
-          <div className="border border-gray-300 bg-white">
+          <div className="border-2 border-slate-200 bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table
                 className="w-full border-collapse"
@@ -2192,18 +2519,34 @@ export default function ProductManagement() {
                         result.push(
                           // Closing Stock Row
                           <tr key={`${groupKey}-closing-stock`} className="bg-green-50 border-b-4 border-red-500">
-                            <td className="border border-gray-300 p-2 font-semibold text-black">Closing Stock</td>
+                            <td className="border border-gray-300 p-2 font-semibold text-black">
+                              Closing Stock
+                              <div className="text-xs text-gray-600 mt-1">
+                                Formula: Opening + Shipments - Sales
+                              </div>
+                            </td>
                             <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.product.name}</td>
                             <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.warehouse.name}</td>
                             <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.unit}</td>
                             <td className="border border-gray-300 p-2"></td>
-                            {months.map(({ key }) => (
-                              <td key={key} className="border border-gray-300 p-1 text-center">
-                                <div className="w-full h-8 text-center border border-gray-300 bg-gray-100 flex items-center justify-center font-medium">
-                                  {consolidatedClosingStock[key]?.toLocaleString() || "0"}
-                                </div>
-                              </td>
-                            ))}
+                            {months.map(({ key }) => {
+                              const openingStock = consolidatedOpeningStock[key] || 0
+                              const sales = groupRows.reduce((sum, row) => sum + (row.monthly_sales[key] || 0), 0)
+                              const shipments = groupRows[0]?.monthly_shipments[key] || []
+                              const totalShipments = shipments.reduce((sum, shipment) => sum + (shipment.quantity || 0), 0)
+                              const closingStock = consolidatedClosingStock[key] || 0
+                              
+                              return (
+                                <td key={key} className="border border-gray-300 p-1 text-center">
+                                  <div className="w-full h-8 text-center border border-gray-300 bg-gray-100 flex items-center justify-center font-medium">
+                                    {closingStock?.toLocaleString() || "0"}
+                                  </div>
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    {openingStock} + {totalShipments} - {sales} = {closingStock}
+                                  </div>
+                                </td>
+                              )
+                            })}
                             <td className="border border-gray-300 p-2"></td>
                             <td className="border border-gray-300 p-2"></td>
                           </tr>,
@@ -2220,9 +2563,10 @@ export default function ProductManagement() {
         </CardContent>
       </Card>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-lg font-semibold text-black">
+      <Card className="mt-8 shadow-lg border-0 bg-gradient-to-br from-white to-slate-50">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent flex items-center gap-3">
+            <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
             Totals by Product x Warehouse (customers combined)
           </CardTitle>
         </CardHeader>
@@ -2230,21 +2574,21 @@ export default function ProductManagement() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
-                <tr className="bg-gray-100">
-                  <th className="border border-gray-300 text-center p-2 min-w-[120px] bg-gray-100">
-                    <span className="text-black font-medium">Product</span>
+                <tr className="bg-gradient-to-r from-slate-100 to-gray-100">
+                  <th className="border border-slate-200 text-center p-3 min-w-[120px] bg-gradient-to-r from-slate-100 to-gray-100">
+                    <span className="text-slate-800 font-semibold">Product</span>
                   </th>
-                  <th className="border border-gray-300 text-center p-2 min-w-[120px] bg-gray-100">
-                    <span className="text-black font-medium">Warehouse</span>
+                  <th className="border border-slate-200 text-center p-3 min-w-[120px] bg-gradient-to-r from-slate-100 to-gray-100">
+                    <span className="text-slate-800 font-semibold">Warehouse</span>
                   </th>
-                  <th className="border border-gray-300 text-center p-2 min-w-[120px] bg-gray-100">
-                    <span className="text-black font-medium">Unit</span>
+                  <th className="border border-slate-200 text-center p-3 min-w-[120px] bg-gradient-to-r from-slate-100 to-gray-100">
+                    <span className="text-slate-800 font-semibold">Unit</span>
                   </th>
-                  <th className="border border-gray-300 text-center p-2 min-w-[120px] bg-gray-100">
-                    <span className="text-black font-medium">Total Sales</span>
+                  <th className="border border-slate-200 text-center p-3 min-w-[120px] bg-gradient-to-r from-slate-100 to-gray-100">
+                    <span className="text-slate-800 font-semibold">Total Sales</span>
                   </th>
-                  <th className="border border-gray-300 text-center p-2 min-w-[120px] bg-gray-100">
-                    <span className="text-black font-medium">Entries</span>
+                  <th className="border border-slate-200 text-center p-3 min-w-[120px] bg-gradient-to-r from-slate-100 to-gray-100">
+                    <span className="text-slate-800 font-semibold">Entries</span>
                   </th>
                 </tr>
               </thead>
@@ -2288,14 +2632,16 @@ export default function ProductManagement() {
                   }
 
                   return totalsArray.map((totals, index) => (
-                    <tr key={index} className="bg-white hover:bg-gray-50">
-                      <td className="border border-gray-300 p-2 bg-white text-black">{totals.productName}</td>
-                      <td className="border border-gray-300 p-2 bg-white text-black">{totals.warehouseName}</td>
-                      <td className="border border-gray-300 p-2 bg-white text-black">{totals.unit}</td>
-                      <td className="border border-gray-300 p-2 bg-white text-black">
-                        {totals.totalSales.toLocaleString()} {totals.unit.toLowerCase()}
+                    <tr key={index} className="bg-white hover:bg-slate-50 transition-colors duration-200">
+                      <td className="border border-slate-200 p-3 bg-white text-slate-800 font-medium">{totals.productName}</td>
+                      <td className="border border-slate-200 p-3 bg-white text-slate-800 font-medium">{totals.warehouseName}</td>
+                      <td className="border border-slate-200 p-3 bg-white text-slate-800 font-medium">{totals.unit}</td>
+                      <td className="border border-slate-200 p-3 bg-white text-slate-800 font-semibold">
+                        <span className="text-indigo-600">{totals.totalSales.toLocaleString()}</span> {totals.unit.toLowerCase()}
                       </td>
-                      <td className="border border-gray-300 p-2 bg-white text-black">{totals.entries}</td>
+                      <td className="border border-slate-200 p-3 bg-white text-slate-800 font-medium">
+                        <span className="px-2 py-1 bg-slate-100 rounded-lg text-slate-700">{totals.entries}</span>
+                      </td>
                     </tr>
                   ))
                 })()}
@@ -2307,45 +2653,45 @@ export default function ProductManagement() {
 
       {contextMenu && (
         <div
-          className="absolute z-50 bg-white border border-gray-300 rounded shadow-md"
+          className="absolute z-50 bg-white border border-slate-200 rounded-xl shadow-xl backdrop-blur-sm"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
-            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+            className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
             onClick={() => applyFormatting("red")}
           >
-            Red
+            🔴 Red
           </button>
           <button
-            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+            className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
             onClick={() => applyFormatting("green")}
           >
-            Green
+            🟢 Green
           </button>
           <button
-            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+            className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
             onClick={() => applyFormatting("black")}
           >
-            Black
+            ⚫ Black
           </button>
           <button
-            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+            className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
             onClick={() => toggleBold()}
           >
-            Toggle Bold
+            <strong>B</strong> Toggle Bold
           </button>
         </div>
       )}
 
       {suggestions.show && (
         <div
-          className="absolute z-50 bg-white border border-gray-300 rounded shadow-md"
+          className="absolute z-50 bg-white border border-slate-200 rounded-xl shadow-xl backdrop-blur-sm"
           style={{ top: suggestions.position.top, left: suggestions.position.left }}
         >
           {suggestions.items.map((item) => (
             <button
               key={item}
-              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+              className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
               onClick={() => selectSuggestion(item)}
             >
               {item}

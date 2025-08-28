@@ -72,12 +72,160 @@ export function DashboardReports() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true)
-      await Promise.all([fetchMetrics(), fetchChartData(), fetchProductPerformance(), fetchStockAlerts()])
+      
+      // Try to get data from localStorage first (mock data from Products tab)
+      const storedProductData = localStorage.getItem('inventoryProductData')
+      const storedCustomerData = localStorage.getItem('inventoryCustomerData')
+      const storedWarehouseData = localStorage.getItem('inventoryWarehouseData')
+      
+      if (storedProductData && storedCustomerData && storedWarehouseData) {
+        // Use mock data from Products tab
+        const mockProductRows = JSON.parse(storedProductData)
+        const mockCustomers = JSON.parse(storedCustomerData)
+        const mockWarehouses = JSON.parse(storedWarehouseData)
+        
+        // Calculate metrics from mock data
+        calculateMetricsFromMockData(mockProductRows, mockCustomers, mockWarehouses)
+        calculateChartDataFromMockData(mockProductRows)
+        calculateProductPerformanceFromMockData(mockProductRows)
+        calculateStockAlertsFromMockData(mockProductRows)
+      } else {
+        // Fallback to Supabase if no mock data
+        await Promise.all([fetchMetrics(), fetchChartData(), fetchProductPerformance(), fetchStockAlerts()])
+      }
     } catch (error) {
       console.error("Error fetching dashboard data:", error)
     } finally {
       setLoading(false)
     }
+  }
+
+  const calculateMetricsFromMockData = (productRows: any[], customers: any[], warehouses: any[]) => {
+    const totalProducts = new Set(productRows.map(row => row.product.name)).size
+    const totalCustomers = customers.length
+    const totalSales = productRows.reduce((sum, row) => sum + (row.total_sales || 0), 0)
+    
+    // Calculate total shipments
+    const totalShipments = productRows.reduce((sum, row) => {
+      if (row.monthly_shipments) {
+        return sum + Object.values(row.monthly_shipments).reduce((monthSum: number, monthShipments: any) => {
+          return monthSum + (Array.isArray(monthShipments) ? monthShipments.length : 0)
+        }, 0)
+      }
+      return sum
+    }, 0)
+    
+    const totalStockRecords = productRows.length
+    
+    // Calculate current month metrics (assuming current month is Jan 25 for demo)
+    const currentMonthSales = productRows.reduce((sum, row) => {
+      return sum + (row.monthly_sales?.jan25 || 0)
+    }, 0)
+    
+    const previousMonthSales = productRows.reduce((sum, row) => {
+      return sum + (row.monthly_sales?.dec24 || 0)
+    }, 0)
+    
+    const currentMonthShipments = productRows.reduce((sum, row) => {
+      const monthShipments = row.monthly_shipments?.jan25 || []
+      return sum + (Array.isArray(monthShipments) ? monthShipments.length : 0)
+    }, 0)
+    
+    const previousMonthShipments = productRows.reduce((sum, row) => {
+      const monthShipments = row.monthly_shipments?.dec24 || []
+      return sum + (Array.isArray(monthShipments) ? monthShipments.length : 0)
+    }, 0)
+    
+    setMetrics({
+      totalProducts,
+      totalCustomers,
+      totalSales,
+      totalShipments,
+      totalStockRecords,
+      currentMonthSales,
+      previousMonthSales,
+      currentMonthShipments,
+      previousMonthShipments,
+    })
+  }
+
+  const calculateChartDataFromMockData = (productRows: any[]) => {
+    const months = ["dec24", "jan25", "feb25", "mar25", "apr25", "may25", "jun25", "jul25", "aug25", "sep25", "oct25", "nov25", "dec25"]
+    const monthLabels = ["Dec 24", "Jan 25", "Feb 25", "Mar 25", "Apr 25", "May 25", "Jun 25", "Jul 25", "Aug 25", "Sep 25", "Oct 25", "Nov 25", "Dec 25"]
+    
+    const chartData = monthLabels.map((label, index) => {
+      const monthKey = months[index]
+      const sales = productRows.reduce((sum, row) => sum + (row.monthly_sales?.[monthKey] || 0), 0)
+      const shipments = productRows.reduce((sum, row) => {
+        const monthShipments = row.monthly_shipments?.[monthKey] || []
+        return sum + (Array.isArray(monthShipments) ? monthShipments.reduce((s: number, shipment: any) => s + (shipment.quantity || 0), 0) : 0)
+      }, 0)
+      const stock = productRows.reduce((sum, row) => sum + (row.monthly_closing_stock?.[monthKey] || 0), 0)
+      
+      return { name: label, sales, shipments, stock }
+    })
+    
+    setChartData(chartData)
+  }
+
+  const calculateProductPerformanceFromMockData = (productRows: any[]) => {
+    const productMap = new Map()
+    
+    productRows.forEach(row => {
+      const productName = row.product.name
+      if (!productMap.has(productName)) {
+        productMap.set(productName, {
+          product_name: productName,
+          total_sales: 0,
+          total_shipments: 0,
+          customer_count: new Set()
+        })
+      }
+      
+      const product = productMap.get(productName)
+      product.total_sales += row.total_sales || 0
+      product.customer_count.add(row.customer.name)
+      
+      // Count shipments
+      if (row.monthly_shipments) {
+        Object.values(row.monthly_shipments).forEach((monthShipments: any) => {
+          if (Array.isArray(monthShipments)) {
+            product.total_shipments += monthShipments.length
+          }
+        })
+      }
+    })
+    
+    const performance = Array.from(productMap.values()).map(product => ({
+      ...product,
+      customer_count: product.customer_count.size
+    }))
+    
+    setProductPerformance(performance)
+  }
+
+  const calculateStockAlertsFromMockData = (productRows: any[]) => {
+    const alerts: StockAlert[] = []
+    
+    productRows.forEach(row => {
+      const closingStock = row.monthly_closing_stock?.dec25 || 0
+      const openingStock = row.monthly_opening_stock?.dec25 || 0
+      const variance = closingStock - openingStock
+      
+      let status: "low" | "negative" | "normal" = "normal"
+      if (closingStock < 1000) status = "low"
+      if (closingStock < 0) status = "negative"
+      
+      alerts.push({
+        product_name: row.product.name,
+        warehouse_name: row.warehouse.name,
+        closing_stock: closingStock,
+        variance,
+        status
+      })
+    })
+    
+    setStockAlerts(alerts)
   }
 
   const fetchMetrics = async () => {
