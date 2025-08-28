@@ -260,6 +260,49 @@ export default function ShipmentManagement() {
     setEditingLink(null)
   }
 
+  const handleDeleteShipment = (shipmentId: string) => {
+    if (confirm('Are you sure you want to delete this shipment? This action cannot be undone.')) {
+      const updatedShipments = shipments.filter(shipment => shipment.id !== shipmentId)
+      setShipments(updatedShipments)
+      
+      // Update localStorage to persist the deletion
+      const storedProductData = localStorage.getItem('inventoryProductData')
+      if (storedProductData) {
+        try {
+          const mockProductRows = JSON.parse(storedProductData)
+          
+          // Remove the shipment from the stored data
+          const updatedProductRows = mockProductRows.map((row: any) => {
+            if (row.monthly_shipments) {
+              const updatedMonthlyShipments = { ...row.monthly_shipments }
+              
+              Object.keys(updatedMonthlyShipments).forEach(monthKey => {
+                if (Array.isArray(updatedMonthlyShipments[monthKey])) {
+                  updatedMonthlyShipments[monthKey] = updatedMonthlyShipments[monthKey].filter((shipment: any) => {
+                    // Find the shipment to delete by matching shipment number
+                    const shipmentToDelete = shipments.find(s => s.id === shipmentId)
+                    return shipment.shipment_number !== shipmentToDelete?.shipment_number
+                  })
+                }
+              })
+              
+              return { ...row, monthly_shipments: updatedMonthlyShipments }
+            }
+            return row
+          })
+          
+          localStorage.setItem('inventoryProductData', JSON.stringify(updatedProductRows))
+          
+          // Trigger custom event to notify other components
+          window.dispatchEvent(new CustomEvent('localStorageChange'))
+        } catch (error) {
+          console.error("Error updating stored product data:", error)
+        }
+      }
+      
+      console.log('Shipment deleted successfully')
+    }
+  }
 
 
   if (loading) {
@@ -432,14 +475,13 @@ export default function ShipmentManagement() {
                       <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Month</th>
                       <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Date</th>
                       <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Status</th>
-                      <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Link</th>
                       <th className="border border-slate-200 text-center p-3 text-slate-800 font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredShipments.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="border border-slate-200 text-center p-8 text-slate-500 bg-white">
+                        <td colSpan={9} className="border border-slate-200 text-center p-8 text-slate-500 bg-white">
                           No shipments found matching your criteria.
                         </td>
                       </tr>
@@ -475,17 +517,6 @@ export default function ShipmentManagement() {
                             </span>
                           </td>
                           <td className="border border-slate-200 p-3 text-center">
-                            {shipment.link ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                                🔗 Available
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
-                                No Link
-                              </span>
-                            )}
-                          </td>
-                          <td className="border border-slate-200 p-3 text-center">
                             <div className="flex gap-2 justify-center">
                               <Button
                                 variant="outline"
@@ -507,6 +538,14 @@ export default function ShipmentManagement() {
                                 onClick={() => handleEditLink(shipment)}
                               >
                                 Edit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-3 text-xs border-red-200 text-red-600 hover:bg-red-50"
+                                onClick={() => handleDeleteShipment(shipment.id)}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                               </Button>
                             </div>
                           </td>
