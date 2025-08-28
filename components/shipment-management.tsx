@@ -28,7 +28,6 @@ export default function ShipmentManagement() {
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [filterMonth, setFilterMonth] = useState<string>("all")
   const [editingLink, setEditingLink] = useState<{ shipmentId: string; link: string } | null>(null)
-  const [viewingLink, setViewingLink] = useState<{ shipment: Shipment; content: string; loading: boolean } | null>(null)
 
   // Mock data for demonstration - in real app this would come from the product admin table
   const mockShipments: Shipment[] = []
@@ -196,62 +195,27 @@ export default function ShipmentManagement() {
     URL.revokeObjectURL(url)
   }
 
-  const handleViewShipment = async (shipment: Shipment) => {
+  const handleViewShipment = (shipment: Shipment) => {
     if (shipment.link) {
-      try {
-        setViewingLink({ shipment, content: '', loading: true })
-        
-        // Clean up the URL if it's malformed
-        let cleanUrl = shipment.link.trim()
-        
-        // Fix common malformation patterns
-        if (cleanUrl.includes('http') && cleanUrl.indexOf('http') > 0) {
-          // Extract the actual URL part
-          const httpIndex = cleanUrl.indexOf('http')
-          cleanUrl = cleanUrl.substring(httpIndex)
-        }
-        
-        // Validate the cleaned URL
-        const urlPattern = /^https?:\/\/[^\s]+$/i
-        if (!urlPattern.test(cleanUrl)) {
-          setViewingLink({ 
-            shipment, 
-            content: `Error: Invalid URL format detected. Please edit this link to fix the URL.\n\nCurrent URL: ${shipment.link}`, 
-            loading: false 
-          })
-          return
-        }
-        
-        console.log('Attempting to fetch URL:', cleanUrl) // Debug log
-        
-        // Fetch the content of the cleaned link
-        const response = await fetch(cleanUrl, {
-          method: 'GET',
-          mode: 'cors',
-          headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'User-Agent': 'Mozilla/5.0 (compatible; InventorySystem/1.0)'
-          }
-        })
-        
-        if (response.ok) {
-          const content = await response.text()
-          setViewingLink({ shipment, content, loading: false })
-        } else {
-          setViewingLink({ 
-            shipment, 
-            content: `Error: Unable to fetch content (Status: ${response.status})\n\nURL attempted: ${cleanUrl}`, 
-            loading: false 
-          })
-        }
-      } catch (error) {
-        console.error('Fetch error:', error) // Debug log
-        setViewingLink({ 
-          shipment, 
-          content: `Error: ${error instanceof Error ? error.message : 'Failed to fetch content'}\n\nURL attempted: ${shipment.link}`, 
-          loading: false 
-        })
+      // Clean up the URL if it's malformed
+      let cleanUrl = shipment.link.trim()
+      
+      // Fix common malformation patterns
+      if (cleanUrl.includes('http') && cleanUrl.indexOf('http') > 0) {
+        // Extract the actual URL part
+        const httpIndex = cleanUrl.indexOf('http')
+        cleanUrl = cleanUrl.substring(httpIndex)
       }
+      
+      // Validate the cleaned URL
+      const urlPattern = /^https?:\/\/[^\s]+$/i
+      if (!urlPattern.test(cleanUrl)) {
+        alert('Invalid URL format detected. Please edit this link to fix the URL.')
+        return
+      }
+      
+      // Open the link in a new tab
+      window.open(cleanUrl, '_blank', 'noopener,noreferrer')
     } else {
       // Fallback: show an alert if no link is available
       alert(`No link available for shipment ${shipment.shipment_number}`)
@@ -296,9 +260,7 @@ export default function ShipmentManagement() {
     setEditingLink(null)
   }
 
-  const handleCloseView = () => {
-    setViewingLink(null)
-  }
+
 
   if (loading) {
     return (
@@ -534,9 +496,9 @@ export default function ShipmentManagement() {
                                     : "border-slate-200 text-slate-600 hover:bg-slate-50"
                                 }`}
                                 onClick={() => handleViewShipment(shipment)}
-                                title={shipment.link ? `View content from ${shipment.link}` : "No link available"}
+                                title={shipment.link ? `Open ${shipment.link} in new tab` : "No link available"}
                               >
-                                {shipment.link ? "🔗 View Content" : "View"}
+                                {shipment.link ? "🔗 Open Link" : "View"}
                               </Button>
                               <Button
                                 variant="outline"
@@ -598,76 +560,7 @@ export default function ShipmentManagement() {
             </div>
           )}
 
-          {/* Link View Modal */}
-          {viewingLink && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 w-11/12 h-5/6 max-w-6xl max-h-[90vh] flex flex-col">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-slate-800">
-                    Viewing: {viewingLink.shipment.shipment_number} - {viewingLink.shipment.product_name}
-                  </h3>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => window.open(viewingLink.shipment.link, '_blank', 'noopener,noreferrer')}
-                      className="text-blue-600 hover:bg-blue-50"
-                    >
-                      Open in New Tab
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCloseView}
-                      className="text-slate-600 hover:bg-slate-50"
-                    >
-                      Close
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="flex-1 overflow-hidden">
-                  {viewingLink.loading ? (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center space-y-4">
-                        <div className="w-16 h-16 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin mx-auto"></div>
-                        <div className="text-lg font-semibold text-slate-700">Loading content...</div>
-                        <div className="text-sm text-slate-500">Fetching content from {viewingLink.shipment.link}</div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="h-full overflow-auto">
-                      <div className="mb-4 p-3 bg-slate-50 rounded-lg">
-                        <div className="text-sm text-slate-600">
-                          <strong>Source:</strong> {viewingLink.shipment.link}
-                        </div>
-                        {viewingLink.content.includes('Invalid URL format') && (
-                          <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-amber-800 text-xs">
-                            💡 <strong>Tip:</strong> This URL appears to be malformed. Click "Edit" to fix the URL format.
-                          </div>
-                        )}
-                        {!viewingLink.loading && !viewingLink.content.includes('Error:') && (
-                          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-green-800 text-xs">
-                            ✅ <strong>Success:</strong> Content fetched successfully from the URL above.
-                          </div>
-                        )}
-                      </div>
-                                              <div className="border border-slate-200 rounded-lg p-4 bg-white">
-                          {viewingLink.content.includes('Error:') && (
-                            <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-800 text-xs">
-                              🔍 <strong>Debug Info:</strong> Check the browser console for more details about the fetch attempt.
-                            </div>
-                          )}
-                          <pre className="text-sm text-slate-800 whitespace-pre-wrap break-words overflow-x-auto">
-                            {viewingLink.content}
-                          </pre>
-                        </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+
 
           {/* Info Box */}
           <Card className="mt-8 bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200">
