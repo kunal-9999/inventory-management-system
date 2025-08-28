@@ -714,12 +714,18 @@ export default function ProductManagement() {
         const closingStock = openingStock + totalShipmentQuantity - sales
         row.monthly_closing_stock[currentMonthKey] = closingStock
 
-        // Carry forward closing stock to next month's opening stock (if not manually set)
+        // Carry forward closing stock to next month's opening stock
         if (monthIndex < months.length - 1) {
           const nextMonthKey = months[monthIndex + 1].key
-          // Only auto-set opening stock if it hasn't been manually entered
-          if (row.monthly_opening_stock[nextMonthKey] === undefined || row.monthly_opening_stock[nextMonthKey] === 0) {
+          // For new products, always carry forward to ensure proper chain
+          // For existing products, only carry forward if not manually set
+          if (row.isNew) {
             row.monthly_opening_stock[nextMonthKey] = closingStock
+          } else {
+            const currentOpeningStock = row.monthly_opening_stock[nextMonthKey]
+            if (currentOpeningStock === undefined || currentOpeningStock === 0) {
+              row.monthly_opening_stock[nextMonthKey] = closingStock
+            }
           }
         }
       })
@@ -844,12 +850,18 @@ export default function ProductManagement() {
         const closingStock = openingStock + totalShipmentQuantity - sales
         updatedRow.monthly_closing_stock[monthKey] = closingStock
         
-        // Carry forward closing stock to next month's opening stock (if not manually set)
+        // Carry forward closing stock to next month's opening stock
         if (monthIndex < months.length - 1) {
           const nextMonthKey = months[monthIndex + 1].key
-          // Only auto-set opening stock if it hasn't been manually entered
-          if (updatedRow.monthly_opening_stock[nextMonthKey] === undefined || updatedRow.monthly_opening_stock[nextMonthKey] === 0) {
+          // For new products, always carry forward to ensure proper chain
+          // For existing products, only carry forward if not manually set
+          if (updatedRow.isNew) {
             updatedRow.monthly_opening_stock[nextMonthKey] = closingStock
+          } else {
+            const currentOpeningStock = updatedRow.monthly_opening_stock[nextMonthKey]
+            if (currentOpeningStock === undefined || currentOpeningStock === 0) {
+              updatedRow.monthly_opening_stock[nextMonthKey] = closingStock
+            }
           }
         }
       })
@@ -943,7 +955,12 @@ export default function ProductManagement() {
       annual_volume: 0,
       monthly_sales: {},
       monthly_shipments: {},
-      monthly_opening_stock: {},
+      monthly_opening_stock: {
+        // Set initial opening stock for the first month to enable proper calculations
+        // Users can modify this value as needed
+        [months[0]?.key || "dec24"]: 1000
+        // Don't set values for other months - let the carry-forward logic handle them
+      },
       monthly_closing_stock: {},
       opening_stock: 0,
       closing_stock: 0,
@@ -953,7 +970,15 @@ export default function ProductManagement() {
     }
 
     saveToUndoStack(productRows)
-    setProductRows([...productRows, newRow])
+    const updatedRows = [...productRows, newRow]
+    
+    // First set the state
+    setProductRows(updatedRows)
+    
+    // Then calculate stock values after state update
+    setTimeout(() => {
+      calculateStockValues(updatedRows)
+    }, 100)
 
     // Auto-focus on the new row
     setNewlyAddedRowIndex(productRows.length)
@@ -991,7 +1016,12 @@ export default function ProductManagement() {
         annual_volume: 0,
         monthly_sales: {}, // Initialize empty monthly sales
         monthly_shipments: {}, // Initialize empty monthly shipments
-        monthly_opening_stock: {}, // Initialize empty monthly opening stock
+        monthly_opening_stock: {
+          // Set initial opening stock for the first month to enable proper calculations
+          // Users can modify this value as needed
+          [months[0]?.key || "dec24"]: 1000
+          // Don't set values for other months - let the carry-forward logic handle them
+        }, // Initialize with first month opening stock
         monthly_closing_stock: {}, // Initialize empty monthly closing stock
         opening_stock: 0,
         closing_stock: 0,
