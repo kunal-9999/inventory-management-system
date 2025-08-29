@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts"
 import { TrendingUp, TrendingDown, Package, Users, BarChart3, Calendar, AlertTriangle, CheckCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
@@ -69,7 +70,26 @@ export function DashboardReports() {
     fetchDashboardData()
   }, [selectedYear])
 
+  useEffect(() => {
+    console.log('[Dashboard] Setting up localStorageChange event listener...')
+    
+    // Listen for localStorage changes to refresh dashboard data
+    const handleLocalStorageChange = () => {
+      console.log('[Dashboard] Received localStorageChange event, refreshing data...')
+      fetchDashboardData()
+    }
+
+    window.addEventListener('localStorageChange', handleLocalStorageChange)
+    console.log('[Dashboard] Event listener set up successfully')
+
+    return () => {
+      window.removeEventListener('localStorageChange', handleLocalStorageChange)
+      console.log('[Dashboard] Event listener cleaned up')
+    }
+  }, [])
+
   const fetchDashboardData = async () => {
+    console.log('[Dashboard] fetchDashboardData called')
     try {
       setLoading(true)
       
@@ -77,12 +97,19 @@ export function DashboardReports() {
       const storedProductData = localStorage.getItem('inventoryProductData')
       const storedCustomerData = localStorage.getItem('inventoryCustomerData')
       const storedWarehouseData = localStorage.getItem('inventoryWarehouseData')
+      console.log('[Dashboard] Found stored data:', { 
+        productData: !!storedProductData, 
+        customerData: !!storedCustomerData, 
+        warehouseData: !!storedWarehouseData 
+      })
       
       if (storedProductData && storedCustomerData && storedWarehouseData) {
         // Use mock data from Products tab
         const mockProductRows = JSON.parse(storedProductData)
         const mockCustomers = JSON.parse(storedCustomerData)
         const mockWarehouses = JSON.parse(storedWarehouseData)
+        
+        console.log('[Dashboard] Using mock data, rows:', mockProductRows.length)
         
         // Calculate metrics from mock data
         calculateMetricsFromMockData(mockProductRows, mockCustomers, mockWarehouses)
@@ -206,6 +233,7 @@ export function DashboardReports() {
 
   const calculateStockAlertsFromMockData = (productRows: any[]) => {
     const alerts: StockAlert[] = []
+    const productWarehouseMap = new Map()
     
     productRows.forEach(row => {
       const closingStock = row.monthly_closing_stock?.dec25 || 0
@@ -216,16 +244,31 @@ export function DashboardReports() {
       if (closingStock < 1000) status = "low"
       if (closingStock < 0) status = "negative"
       
-      alerts.push({
-        product_name: row.product.name,
-        warehouse_name: row.warehouse.name,
-        closing_stock: closingStock,
-        variance,
-        status
-      })
+      // Create a unique key for product-warehouse combination
+      const key = `${row.product.name}-${row.warehouse.name}`
+      
+      if (!productWarehouseMap.has(key)) {
+        productWarehouseMap.set(key, {
+          product_name: row.product.name,
+          warehouse_name: row.warehouse.name,
+          closing_stock: closingStock,
+          variance,
+          status
+        })
+      } else {
+        // If we already have an alert for this product-warehouse, update with the lower stock level
+        const existing = productWarehouseMap.get(key)
+        if (closingStock < existing.closing_stock) {
+          existing.closing_stock = closingStock
+          existing.variance = variance
+          existing.status = status
+        }
+      }
     })
     
-    setStockAlerts(alerts)
+    // Convert map values to array
+    const uniqueAlerts = Array.from(productWarehouseMap.values())
+    setStockAlerts(uniqueAlerts)
   }
 
   const fetchMetrics = async () => {
@@ -442,6 +485,7 @@ export function DashboardReports() {
         .limit(50)
 
       const alerts: StockAlert[] = []
+      const productWarehouseMap = new Map()
 
       for (const stock of stockData || []) {
         // Calculate variance (simplified - in real app you'd get actual shipments/sales)
@@ -470,17 +514,32 @@ export function DashboardReports() {
         if (stock.closing_stock < 0) status = "negative"
 
         if (status !== "normal") {
-          alerts.push({
-            product_name: stock.product.name,
-            warehouse_name: stock.warehouse.name,
-            closing_stock: stock.closing_stock,
-            variance: variance,
-            status: status,
-          })
+          // Create a unique key for product-warehouse combination
+          const key = `${stock.product.name}-${stock.warehouse.name}`
+          
+          if (!productWarehouseMap.has(key)) {
+            productWarehouseMap.set(key, {
+              product_name: stock.product.name,
+              warehouse_name: stock.warehouse.name,
+              closing_stock: stock.closing_stock,
+              variance: variance,
+              status: status,
+            })
+          } else {
+            // If we already have an alert for this product-warehouse, update with the lower stock level
+            const existing = productWarehouseMap.get(key)
+            if (stock.closing_stock < existing.closing_stock) {
+              existing.closing_stock = stock.closing_stock
+              existing.variance = variance
+              existing.status = status
+            }
+          }
         }
       }
 
-      setStockAlerts(alerts.slice(0, 10)) // Show top 10 alerts
+      // Convert map values to array and show top 10 unique alerts
+      const uniqueAlerts = Array.from(productWarehouseMap.values())
+      setStockAlerts(uniqueAlerts.slice(0, 10))
     } catch (error) {
       console.error("Error fetching stock alerts:", error)
     }
@@ -499,7 +558,7 @@ export function DashboardReports() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-muted">Loading dashboard...</div>
+        <div className="text-lg text-foreground">Loading dashboard...</div>
       </div>
     )
   }
@@ -509,7 +568,7 @@ export function DashboardReports() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-bold text-foreground">Dashboard & Reports</h2>
-          <p className="text-muted mt-1">Comprehensive analytics and insights for your inventory system</p>
+          <p className="text-foreground mt-1">Comprehensive analytics and insights for your inventory system</p>
         </div>
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted" />
@@ -525,6 +584,20 @@ export function DashboardReports() {
               ))}
             </SelectContent>
           </Select>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              console.log('=== DASHBOARD EVENT TEST ===')
+              console.log('Dispatching test localStorageChange event...')
+              window.dispatchEvent(new Event('localStorageChange'))
+              console.log('Test event dispatched')
+            }}
+            className="text-xs px-2 py-1 bg-blue-100 text-blue-700"
+          >
+            Test Event
+          </Button>
         </div>
       </div>
 
@@ -599,102 +672,102 @@ export function DashboardReports() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Monthly Trends Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Monthly Trends ({selectedYear})</CardTitle>
-            <CardDescription>Sales, shipments, and stock levels throughout the year</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="sales" stroke="#8b5cf6" strokeWidth={2} name="Sales" />
-                <Line type="monotone" dataKey="shipments" stroke="#6366f1" strokeWidth={2} name="Shipments" />
-                <Line type="monotone" dataKey="stock" stroke="#3b82f6" strokeWidth={2} name="Stock" />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          {/* Monthly Trends Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Monthly Trends ({selectedYear})</CardTitle>
+              <CardDescription className="text-foreground">Sales, shipments, and stock levels throughout the year</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="sales" stroke="#8b5cf6" strokeWidth={2} name="Sales" />
+                  <Line type="monotone" dataKey="shipments" stroke="#6366f1" strokeWidth={2} name="Shipments" />
+                  <Line type="monotone" dataKey="stock" stroke="#3b82f6" strokeWidth={2} name="Stock" />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
 
-        {/* Sales vs Shipments Bar Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Sales vs Shipments ({selectedYear})</CardTitle>
-            <CardDescription>Monthly comparison of sales and shipments</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="sales" fill="#8b5cf6" name="Sales" />
-                <Bar dataKey="shipments" fill="#6366f1" name="Shipments" />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
+          {/* Sales vs Shipments Bar Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Sales vs Shipments ({selectedYear})</CardTitle>
+              <CardDescription className="text-foreground">Monthly comparison of sales and shipments</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="sales" fill="#8b5cf6" name="Sales" />
+                 <Bar dataKey="shipments" fill="#6366f1" name="Shipments" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </div>
 
       {/* Product Performance and Stock Alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Product Performance */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Product Performance ({selectedYear})</CardTitle>
-            <CardDescription>Top performing products by sales volume</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {productPerformance.slice(0, 5).map((product, index) => (
-                <div key={product.product_name} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-sm font-medium">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <p className="font-medium">{product.product_name}</p>
-                      <p className="text-sm text-muted">{product.customer_count} customers</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium">{product.total_sales.toLocaleString()}</p>
-                    <p className="text-sm text-muted">sales</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Stock Alerts */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Stock Alerts</CardTitle>
-            <CardDescription>Products requiring attention</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stockAlerts.length === 0 ? (
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="h-4 w-4" />
-                  <span>All stock levels are normal</span>
-                </div>
-              ) : (
-                stockAlerts.map((alert, index) => (
-                  <div key={index} className="flex items-center justify-between">
+          {/* Product Performance */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Product Performance ({selectedYear})</CardTitle>
+              <CardDescription className="text-foreground">Top performing products by sales volume</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {productPerformance.slice(0, 5).map((product, index) => (
+                  <div key={product.product_name} className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <AlertTriangle
-                        className={`h-4 w-4 ${alert.status === "negative" ? "text-red-600" : "text-yellow-600"}`}
-                      />
+                      <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-sm font-medium">
+                        {index + 1}
+                      </div>
                       <div>
-                        <p className="font-medium">{alert.product_name}</p>
-                        <p className="text-sm text-muted">{alert.warehouse_name}</p>
+                        <p className="font-medium">{product.product_name}</p>
+                        <p className="text-sm text-foreground">{product.customer_count} customers</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium">{product.total_sales.toLocaleString()}</p>
+                      <p className="text-sm text-foreground">sales</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Stock Alerts */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Stock Alerts</CardTitle>
+              <CardDescription className="text-foreground">Products requiring attention</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {stockAlerts.length === 0 ? (
+                  <div className="flex items-center gap-2 text-green-600">
+                    <CheckCircle className="h-4 w-4" />
+                    <span>All stock levels are normal</span>
+                  </div>
+                ) : (
+                  stockAlerts.map((alert, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <AlertTriangle
+                          className={`h-4 w-4 ${alert.status === "negative" ? "text-red-600" : "text-yellow-600"}`}
+                        />
+                        <div>
+                          <p className="font-medium">{alert.product_name}</p>
+                          <p className="text-sm text-foreground">{alert.warehouse_name}</p>
                       </div>
                     </div>
                     <div className="text-right">

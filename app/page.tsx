@@ -1,9 +1,21 @@
 "use client"
 
-import ProductManagement from "@/components/product-management"
-import { DashboardReports } from "@/components/dashboard-reports"
-import ShipmentManagement from "@/components/shipment-management"
+import dynamic from "next/dynamic"
 import { useState, useEffect } from "react"
+
+// Dynamically import components with SSR disabled to prevent hydration issues
+const ProductManagement = dynamic(() => import("@/components/product-management"), { 
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-64"><div className="text-lg text-foreground">Loading Products...</div></div>
+})
+const DashboardReports = dynamic(() => import("@/components/dashboard-reports").then(mod => ({ default: mod.DashboardReports })), { 
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-64"><div className="text-lg text-foreground">Loading Dashboard...</div></div>
+})
+const ShipmentManagement = dynamic(() => import("@/components/shipment-management"), { 
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-64"><div className="text-lg text-foreground">Loading Shipments...</div></div>
+})
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("dashboard")
@@ -53,7 +65,7 @@ export default function Home() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === "dashboard" && <DashboardReports key={`dashboard-${refreshKey}`} />}
-        {activeTab === "products" && <ProductManagement />}
+        {activeTab === "products" && <ProductManagement key={`products-${refreshKey}`} />}
         {activeTab === "shipments" && <ShipmentManagement key={`shipments-${refreshKey}`} />}
       </main>
     </div>

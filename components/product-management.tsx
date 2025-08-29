@@ -2,10 +2,10 @@
 
 import type React from "react"
 
-import { useState, useEffect, useCallback, type ReactElement } from "react"
+import { useState, useEffect, useCallback, useRef, type ReactElement } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { RotateCcw, Download, Plus, Minus, RotateCw, Search, Edit, X, Check } from "lucide-react"
+import { RotateCcw, Download, Plus, Minus, RotateCw, Search, Edit, X, Check, ArrowUp } from "lucide-react"
 import { canUseSupabase } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -59,6 +59,7 @@ export default function ProductManagement() {
   const [currentlyFocusedCell, setCurrentlyFocusedCell] = useState<{ rowIndex: number; field: string } | null>(null)
 
   const [duplicateAlert, setDuplicateAlert] = useState<string | null>(null)
+
   const [suggestions, setSuggestions] = useState<{
     items: string[]
     field: string
@@ -97,6 +98,8 @@ export default function ProductManagement() {
   }>({})
 
   const [newlyAddedRowIndex, setNewlyAddedRowIndex] = useState<number | null>(null)
+
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   const months = [
     { key: "dec24", label: "Sales Dec 24", month: 12 },
@@ -192,7 +195,21 @@ export default function ProductManagement() {
             // Expected calculation: Dec closing stock = 10000 + 24000 - 1000 = 33000
             // Jan opening stock should auto-calculate to 33000
           },
-          monthly_closing_stock: {},
+          monthly_closing_stock: {
+            "dec24": 33000, // 10000 + 24000 - 1000
+            "jan25": 32150, // 33000 + 2100 - 1350
+            "feb25": 32150, // 32150 + 1000 - 1100
+            "mar25": 32150, // 32150 + 2000 - 1400
+            "apr25": 32000, // 32150 + 1100 - 1250
+            "may25": 32000, // 32000 + 1300 - 1300
+            "jun25": 31850, // 32000 + 1500 - 1150
+            "jul25": 31900, // 31850 + 1200 - 1450
+            "aug25": 31800, // 31900 + 1000 - 1200
+            "sep25": 31850, // 31800 + 1200 - 1350
+            "oct25": 31850, // 31850 + 900 - 1100
+            "nov25": 31800, // 31850 + 1100 - 1250
+            "dec25": 31650  // 31800 + 1300 - 1400
+          },
           opening_stock: 5000,
           closing_stock: 4700,
           total_sales: 15000,
@@ -277,7 +294,21 @@ export default function ProductManagement() {
             "nov25": 3000,
             "dec25": 3100
           },
-          monthly_closing_stock: {},
+          monthly_closing_stock: {
+            "dec24": 3200, // 3000 + 1000 - 800
+            "jan25": 3200, // 3200 + 900 - 900
+            "feb25": 3250, // 3200 + 800 - 750
+            "mar25": 3300, // 3250 + 1000 - 950
+            "apr25": 3350, // 3300 + 900 - 850
+            "may25": 3400, // 3350 + 950 - 900
+            "jun25": 3400, // 3400 + 850 - 800
+            "jul25": 3450, // 3400 + 1000 - 1000
+            "aug25": 3500, // 3450 + 900 - 850
+            "sep25": 3550, // 3500 + 950 - 950
+            "oct25": 3550, // 3550 + 800 - 800
+            "nov25": 3600, // 3550 + 900 - 900
+            "dec25": 3650  // 3600 + 950 - 950
+          },
           opening_stock: 3000,
           closing_stock: 3100,
           total_sales: 10500,
@@ -491,8 +522,85 @@ export default function ProductManagement() {
   }
 
   useEffect(() => {
+    // First try to load data from localStorage
+    const storedData = localStorage.getItem('inventoryProductData')
+    const storedCustomers = localStorage.getItem('inventoryCustomerData')
+    const storedWarehouses = localStorage.getItem('inventoryWarehouseData')
+    
+    if (storedData && storedCustomers && storedWarehouses) {
+      try {
+        const parsedData = JSON.parse(storedData)
+        const parsedCustomers = JSON.parse(storedCustomers)
+        const parsedWarehouses = JSON.parse(storedWarehouses)
+        
+        console.log('[ProductManagement] Restoring data from localStorage:', {
+          productRows: parsedData.length,
+          customers: parsedCustomers.length,
+          warehouses: parsedWarehouses.length
+        })
+        
+        setProductRows(parsedData)
+        setCustomers(parsedCustomers)
+        setWarehouses(parsedWarehouses)
+        setLoading(false)
+        
+        // Calculate stock values for restored data - use a simple calculation here
+        // since calculateStockValues is defined later in the component
+        const updatedRows = parsedData.map((row: any) => {
+          if (!row || !row.monthly_sales || !row.monthly_shipments || !row.monthly_opening_stock) {
+            return row
+          }
+          
+          const updatedRow = { ...row }
+          
+          // Simple stock calculation for restored data
+          months.forEach((month, monthIndex) => {
+            const monthKey = month.key
+            const openingStock = updatedRow.monthly_opening_stock[monthKey] || 0
+            const sales = updatedRow.monthly_sales[monthKey] || 0
+            const shipments = updatedRow.monthly_shipments[monthKey] || []
+            const totalShipmentQuantity = shipments.reduce((sum: number, shipment: any) => sum + (shipment.quantity || 0), 0)
+            
+            // Calculate closing stock: Opening Stock + Shipments - Sales
+            const closingStock = openingStock + totalShipmentQuantity - sales
+            updatedRow.monthly_closing_stock[monthKey] = closingStock
+            
+            // Carry forward closing stock to next month's opening stock
+            if (monthIndex < months.length - 1) {
+              const nextMonthKey = months[monthIndex + 1].key
+              if (updatedRow.isNew) {
+                updatedRow.monthly_opening_stock[nextMonthKey] = closingStock
+              } else {
+                const currentOpeningStock = updatedRow.monthly_opening_stock[nextMonthKey]
+                if (currentOpeningStock === undefined || currentOpeningStock === 0) {
+                  updatedRow.monthly_opening_stock[nextMonthKey] = closingStock
+                }
+              }
+            }
+          })
+          
+          return updatedRow
+        })
+        
+        setProductRows(updatedRows)
+        
+        return
+      } catch (error) {
+        console.error('[ProductManagement] Error parsing stored data:', error)
+      }
+    }
+    
+    // If no stored data or error, fetch fresh data
     fetchData()
   }, [selectedYear])
+
+  // Save initial state to undo stack when data is first loaded
+  useEffect(() => {
+    if (productRows.length > 0 && undoStack.length === 0) {
+      console.log("[v0] Saving initial state to undo stack")
+      setUndoStack([JSON.parse(JSON.stringify(productRows))])
+    }
+  }, [productRows, undoStack.length])
 
   useEffect(() => {
     // Apply search filter whenever searchQuery or productRows change
@@ -512,9 +620,39 @@ export default function ProductManagement() {
   useEffect(() => {
     // Update localStorage whenever productRows changes so other tabs can access updated data
     if (productRows.length > 0) {
+      console.log('[ProductManagement] productRows changed, length:', productRows.length)
       localStorage.setItem('inventoryProductData', JSON.stringify(productRows))
       // Dispatch custom event to notify other components in the same window
-      window.dispatchEvent(new Event('localStorageChange'))
+      console.log('[ProductManagement] Dispatching localStorageChange event, productRows length:', productRows.length)
+      const event = new Event('localStorageChange')
+      window.dispatchEvent(event)
+      console.log('[ProductManagement] Event dispatched successfully')
+    }
+  }, [productRows])
+
+  // Listen for localStorage changes from other components
+  useEffect(() => {
+    const handleLocalStorageChange = () => {
+      console.log('[ProductManagement] Received localStorageChange event, checking for updates...')
+      const storedData = localStorage.getItem('inventoryProductData')
+      if (storedData) {
+        try {
+          const parsedData = JSON.parse(storedData)
+          // Only update if the data is different to avoid infinite loops
+          if (JSON.stringify(parsedData) !== JSON.stringify(productRows)) {
+            console.log('[ProductManagement] Updating from localStorage event, new length:', parsedData.length)
+            setProductRows(parsedData)
+          }
+        } catch (error) {
+          console.error('[ProductManagement] Error parsing data from event:', error)
+        }
+      }
+    }
+
+    window.addEventListener('localStorageChange', handleLocalStorageChange)
+    
+    return () => {
+      window.removeEventListener('localStorageChange', handleLocalStorageChange)
     }
   }, [productRows])
 
@@ -687,6 +825,9 @@ export default function ProductManagement() {
   const updateGroupOpeningStock = (productName: string, warehouseName: string, monthKey: string, value: string) => {
     const numValue = Number.parseFloat(value) || 0
 
+    console.log("[v0] Updating group opening stock, saving current state to undo stack")
+    saveToUndoStack(productRows)
+
     const updatedRows = productRows.map((row) => {
       if (
         row.product.name.toLowerCase() === productName.toLowerCase() &&
@@ -752,9 +893,7 @@ export default function ProductManagement() {
     setProductRows(updatedRows)
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [selectedYear])
+  // This useEffect was removed to prevent duplicate data fetching
 
   useEffect(() => {
     // Auto-focus on the product name field of newly added rows
@@ -787,16 +926,23 @@ export default function ProductManagement() {
       return
     }
 
+    console.log("[v0] saveToUndoStack called with", currentRows.length, "rows")
+
     setUndoStack((prevStack) => {
       if (prevStack.length >= 20) {
-        console.log("[v0] Undo stack at maximum capacity, skipping save")
-        return prevStack
+        console.log("[v0] Undo stack at maximum capacity, removing oldest entry")
+        const newStack = prevStack.slice(1) // Remove oldest entry
+        newStack.push(JSON.parse(JSON.stringify(currentRows)))
+        console.log("[v0] Saved to undo stack, stack length:", newStack.length)
+        return newStack
       }
 
+      // Check if this is a duplicate of the last saved state
       if (prevStack.length > 0) {
         const lastSaved = prevStack[prevStack.length - 1]
         if (JSON.stringify(lastSaved) === JSON.stringify(currentRows)) {
-          return prevStack // Skip duplicate without logging
+          console.log("[v0] Duplicate state detected, skipping save")
+          return prevStack
         }
       }
 
@@ -804,6 +950,9 @@ export default function ProductManagement() {
       console.log("[v0] Saved to undo stack, stack length:", newStack.length)
       return newStack
     })
+
+    // Clear redo stack when new action is performed
+    setRedoStack([])
   }, [])
 
   const calculateStockValues = useCallback((rows: ProductRow[]) => {
@@ -878,6 +1027,7 @@ export default function ProductManagement() {
       return updatedRow
     })
 
+    console.log("[v0] calculateStockValues completed, calling setProductRows")
     // Don't trigger undo save for automatic calculations
     setProductRows(updatedRows)
     return updatedRows
@@ -889,6 +1039,7 @@ export default function ProductManagement() {
 
       // Only save to undo stack if value actually changed
       if (oldValue !== value) {
+        console.log("[v0] Value changed, saving to undo stack:", { field, oldValue, newValue: value })
         saveToUndoStack(productRows)
       }
 
@@ -955,6 +1106,8 @@ export default function ProductManagement() {
 
   const handleAddProduct = () => {
     const newProductId = `temp-${Date.now()}`
+    const firstMonthKey = months[0]?.key || "dec24"
+    
     const newRow: ProductRow = {
       id: newProductId,
       product: { id: newProductId, name: "", description: "", unit: "Kgs" },
@@ -963,11 +1116,19 @@ export default function ProductManagement() {
       unit: "Kgs",
       annual_volume: 0,
       monthly_sales: {},
-      monthly_shipments: {},
+      monthly_shipments: {
+        // Add a default shipment so the product appears in shipments tab immediately
+        [firstMonthKey]: [
+          {
+            shipment_number: `SH-${Date.now()}`,
+            quantity: 1000
+          }
+        ]
+      },
       monthly_opening_stock: {
         // Set initial opening stock for the first month to enable proper calculations
         // Users can modify this value as needed
-        [months[0]?.key || "dec24"]: 1000
+        [firstMonthKey]: 1000
         // Don't set values for other months - let the carry-forward logic handle them
       },
       monthly_closing_stock: {},
@@ -978,6 +1139,7 @@ export default function ProductManagement() {
       isNew: true,
     }
 
+    console.log("[v0] Adding new product, saving current state to undo stack")
     saveToUndoStack(productRows)
     const updatedRows = [...productRows, newRow]
     
@@ -1024,7 +1186,15 @@ export default function ProductManagement() {
         unit: selectedRow.unit,
         annual_volume: 0,
         monthly_sales: {}, // Initialize empty monthly sales
-        monthly_shipments: {}, // Initialize empty monthly shipments
+        monthly_shipments: {
+          // Add a default shipment so the product appears in shipments tab immediately
+          [months[0]?.key || "dec24"]: [
+            {
+              shipment_number: `SH-${Date.now()}`,
+              quantity: 1000
+            }
+          ]
+        }, // Initialize with first month opening stock
         monthly_opening_stock: {
           // Set initial opening stock for the first month to enable proper calculations
           // Users can modify this value as needed
@@ -1117,6 +1287,7 @@ export default function ProductManagement() {
   const deleteRow = (rowIndex: number) => {
     console.log("[v0] Delete button clicked for row index:", rowIndex)
 
+    console.log("[v0] Deleting row, saving current state to undo stack")
     saveToUndoStack(productRows)
 
     const rowToDelete = filteredRows[rowIndex]
@@ -1262,6 +1433,10 @@ export default function ProductManagement() {
   const saveShipment = () => {
     if (!editingShipment) return
 
+    console.log("[v0] Saving shipment, saving current state to undo stack")
+    console.log("[v0] Shipment data:", editingShipment)
+    saveToUndoStack(productRows)
+
     const updatedRows = [...productRows]
     const actualRowIndex = productRows.findIndex(
       (row) =>
@@ -1289,11 +1464,28 @@ export default function ProductManagement() {
     }
 
     row.monthly_shipments[monthKey] = shipments
+    console.log("[v0] Shipment saved to row:", { monthKey, shipments: row.monthly_shipments[monthKey] })
     setProductRows(updatedRows)
     setEditingShipment(null)
 
-    // Recalculate stock values when shipments change
-    setTimeout(() => calculateStockValues(updatedRows), 50)
+    // Dispatch custom event to notify shipment management component
+    console.log('[ProductManagement] Dispatching shipmentAdded event')
+    window.dispatchEvent(new CustomEvent('shipmentAdded', { 
+      detail: { 
+        shipmentNumber: editingShipment.shipmentNumber,
+        monthKey: monthKey,
+        productName: row.product.name,
+        customerName: row.customer.name,
+        warehouseName: row.warehouse.name
+      }
+    }))
+    
+    // Also dispatch the localStorageChange event to ensure compatibility
+    console.log('[ProductManagement] Dispatching localStorageChange event')
+    window.dispatchEvent(new Event('localStorageChange'))
+
+    // Recalculate stock values when shipments change - call directly to avoid timing issues
+    calculateStockValues(updatedRows)
   }
 
   const editShipment = (rowIndex: number, monthKey: string, shipmentIndex: number) => {
@@ -1311,6 +1503,7 @@ export default function ProductManagement() {
   }
 
   const deleteShipment = (rowIndex: number, monthKey: string, shipmentIndex: number) => {
+    console.log("[v0] Deleting shipment, saving current state to undo stack")
     saveToUndoStack(productRows)
     const updatedRows = [...productRows]
     const actualRowIndex = productRows.findIndex(
@@ -1325,16 +1518,56 @@ export default function ProductManagement() {
         updatedRows[actualRowIndex].monthly_shipments[monthKey]?.filter((_, index) => index !== shipmentIndex) || []
       setProductRows(updatedRows)
       
-      // Recalculate stock values when shipments are deleted
-      setTimeout(() => calculateStockValues(updatedRows), 50)
+      // Recalculate stock values when shipments are deleted - call directly to avoid timing issues
+      calculateStockValues(updatedRows)
     }
   }
 
   const handleRightClick = (e: React.MouseEvent, rowIndex: number, field: string, monthKey?: string) => {
     e.preventDefault()
+    
+    // Get viewport dimensions and scroll position
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const scrollX = window.scrollX || window.pageXOffset
+    const scrollY = window.scrollY || window.pageYOffset
+    
+    // Get table container scroll position if available
+    const tableContainer = e.currentTarget.closest('.overflow-x-auto')
+    const tableScrollLeft = tableContainer?.scrollLeft || 0
+    
+    // Get actual context menu dimensions if available, otherwise use estimates
+    const menuWidth = contextMenuRef.current?.offsetWidth || 200
+    const menuHeight = contextMenuRef.current?.offsetHeight || 200
+    
+    // Safety margins to ensure menu is fully visible
+    const safetyMargin = 10
+    
+    // Calculate smart positioning to ensure menu is always visible
+    let x = e.clientX + scrollX
+    let y = e.clientY + scrollY
+    
+    // Adjust horizontal position if menu would go off-screen to the right
+    if (x + menuWidth + safetyMargin > viewportWidth + scrollX) {
+      x = e.clientX + scrollX - menuWidth
+    }
+    
+    // Adjust vertical position if menu would go off-screen to the bottom
+    if (y + menuHeight + safetyMargin > viewportHeight + scrollY) {
+      y = e.clientY + scrollY - menuHeight
+    }
+    
+    // Ensure menu doesn't go off-screen to the left or top with safety margins
+    x = Math.max(scrollX + safetyMargin, x)
+    y = Math.max(scrollY + safetyMargin, y)
+    
+    // Add small offset for better visual appearance
+    x += 5
+    y += 5
+    
     setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
+      x,
+      y,
       rowIndex,
       field,
       monthKey,
@@ -1489,20 +1722,101 @@ export default function ProductManagement() {
     return () => document.removeEventListener("click", handleClickOutside)
   }, [])
 
+  // Add keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        console.log("[v0] Ctrl+Z pressed, triggering undo")
+        handleUndo()
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
+        e.preventDefault()
+        console.log("[v0] Ctrl+Shift+Z pressed, triggering redo")
+        handleRedo()
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault()
+        console.log("[v0] Ctrl+Y pressed, triggering redo")
+        handleRedo()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [undoStack.length, redoStack.length, productRows])
+
+  // Ensure context menu is always visible after rendering
+  useEffect(() => {
+    if (contextMenu && contextMenuRef.current) {
+      const menu = contextMenuRef.current
+      const rect = menu.getBoundingClientRect()
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      
+      // Check if menu is off-screen and adjust if needed
+      if (rect.right > viewportWidth) {
+        const newX = contextMenu.x - (rect.right - viewportWidth) - 10
+        setContextMenu(prev => prev ? { ...prev, x: newX } : null)
+      }
+      
+      if (rect.bottom > viewportHeight) {
+        const newY = contextMenu.y - (rect.bottom - viewportHeight) - 10
+        setContextMenu(prev => prev ? { ...prev, y: newY } : null)
+      }
+      
+      if (rect.left < 0) {
+        const newX = contextMenu.x - rect.left + 10
+        setContextMenu(prev => prev ? { ...prev, x: newX } : null)
+      }
+      
+      if (rect.top < 0) {
+        const newY = contextMenu.y - rect.top + 10
+        setContextMenu(prev => prev ? { ...prev, y: newY } : null)
+      }
+    }
+  }, [contextMenu])
+
   const handleUndo = () => {
     if (undoStack.length === 0) return
+    
+    console.log("[v0] Undo triggered, current stack length:", undoStack.length)
+    
     const previousState = undoStack[undoStack.length - 1]
-    setRedoStack([...redoStack, productRows])
-    setProductRows(previousState)
-    setUndoStack(undoStack.slice(0, -1))
+    console.log("[v0] Previous state:", previousState)
+    
+    // Save current state to redo stack
+    setRedoStack(prev => [...prev, JSON.parse(JSON.stringify(productRows))])
+    
+    // Restore previous state
+    setProductRows(JSON.parse(JSON.stringify(previousState)))
+    
+    // Remove the used state from undo stack
+    setUndoStack(prev => prev.slice(0, -1))
+    
+    console.log("[v0] Undo completed, new stack length:", undoStack.length - 1)
+    
+
   }
 
   const handleRedo = () => {
     if (redoStack.length === 0) return
+    
+    console.log("[v0] Redo triggered, current redo stack length:", redoStack.length)
+    
     const nextState = redoStack[redoStack.length - 1]
-    setUndoStack([...undoStack, productRows])
-    setProductRows(nextState)
-    setRedoStack(redoStack.slice(0, -1))
+    console.log("[v0] Next state:", nextState)
+    
+    // Save current state to undo stack
+    setUndoStack(prev => [...prev, JSON.parse(JSON.stringify(productRows))])
+    
+    // Restore next state
+    setProductRows(JSON.parse(JSON.stringify(nextState)))
+    
+    // Remove the used state from redo stack
+    setRedoStack(prev => prev.slice(0, -1))
+    
+    console.log("[v0] Redo completed, new redo stack length:", redoStack.length - 1)
+    
+
   }
 
   const handleTabNavigation = (currentRowIndex: number, currentField: string, shiftKey: boolean) => {
@@ -1783,7 +2097,7 @@ export default function ProductManagement() {
                   onClick={handleUndo}
                   disabled={undoStack.length === 0}
                   className="hover:bg-slate-100 hover:text-slate-700 transition-all duration-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Undo"
+                  title={`Undo (${undoStack.length} available) - Ctrl+Z`}
                 >
                   <RotateCcw className="h-4 w-4 text-slate-600" />
                 </Button>
@@ -1794,11 +2108,13 @@ export default function ProductManagement() {
                   onClick={handleRedo}
                   disabled={redoStack.length === 0}
                   className="hover:bg-slate-100 hover:text-slate-700 transition-all duration-200 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Redo"
+                  title={`Redo (${redoStack.length} available) - Ctrl+Y`}
                 >
                   <RotateCw className="h-4 w-4 text-slate-600" />
                 </Button>
               </div>
+
+
 
               {/* Export Button */}
               <Button
@@ -1807,7 +2123,7 @@ export default function ProductManagement() {
                 onClick={handleExportExcel}
                 className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-800 transition-all duration-200 shadow-sm rounded-lg font-medium"
               >
-                <Download className="h-4 w-4 mr-2" />
+                <ArrowUp className="h-4 w-4 mr-2" />
                 Export to Excel
               </Button>
 
@@ -1863,6 +2179,8 @@ export default function ProductManagement() {
               </div>
             </div>
           )}
+
+
 
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
@@ -2692,6 +3010,7 @@ export default function ProductManagement() {
 
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className="absolute z-50 bg-white border border-slate-200 rounded-xl shadow-xl backdrop-blur-sm"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
