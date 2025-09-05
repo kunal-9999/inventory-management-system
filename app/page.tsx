@@ -16,14 +16,18 @@ const ShipmentManagement = dynamic(() => import("@/components/shipment-managemen
   ssr: false,
   loading: () => <div className="flex items-center justify-center h-64"><div className="text-lg text-foreground">Loading Shipments...</div></div>
 })
+const LogisticsTracking = dynamic(() => import("@/components/logistics-tracking"), { 
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-64"><div className="text-lg text-foreground">Loading Overseas...</div></div>
+})
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("dashboard")
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // Refresh data when switching tabs
+  // Refresh data when switching tabs (but not for products to preserve state)
   useEffect(() => {
-    if (activeTab === "dashboard" || activeTab === "shipments") {
+    if (activeTab === "dashboard" || activeTab === "shipments" || activeTab === "logistics") {
       setRefreshKey(prev => prev + 1)
     }
   }, [activeTab])
@@ -32,11 +36,11 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <header className="bg-primary text-primary-foreground shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-4 items-center h-16">
+          <div className="grid grid-cols-5 items-center h-16">
             <div className="flex items-center">
               <img src="/images/nirav-ingredients-logo.png" alt="Nirav Ingredients Logo" className="h-10 w-auto mr-3" />
             </div>
-            <div className="flex justify-center col-span-2">
+            <div className="flex justify-center col-span-3">
               <h1 className="text-xl font-bold">Inventory Management System</h1>
             </div>
             <nav className="flex justify-end space-x-4">
@@ -58,15 +62,30 @@ export default function Home() {
               >
                 Shipments
               </button>
+              <button
+                onClick={() => setActiveTab("logistics")}
+                className={`hover:text-accent transition-colors ${activeTab === "logistics" ? "text-accent" : ""}`}
+              >
+                Overseas
+              </button>
             </nav>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === "dashboard" && <DashboardReports key={`dashboard-${refreshKey}`} />}
-        {activeTab === "products" && <ProductManagement key={`products-${refreshKey}`} />}
-        {activeTab === "shipments" && <ShipmentManagement key={`shipments-${refreshKey}`} />}
+        <div style={{ display: activeTab === "dashboard" ? "block" : "none" }}>
+          <DashboardReports key={`dashboard-${refreshKey}`} />
+        </div>
+        <div style={{ display: activeTab === "products" ? "block" : "none" }}>
+          <ProductManagement />
+        </div>
+        <div style={{ display: activeTab === "shipments" ? "block" : "none" }}>
+          <ShipmentManagement key={`shipments-${refreshKey}`} />
+        </div>
+        <div style={{ display: activeTab === "logistics" ? "block" : "none" }}>
+          <LogisticsTracking key={`logistics-${refreshKey}`} />
+        </div>
       </main>
     </div>
   )

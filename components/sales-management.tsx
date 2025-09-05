@@ -210,6 +210,10 @@ export function SalesManagement() {
         unit: "Kgs",
       })
       setIsSaleDialogOpen(false)
+      
+      // Dispatch event to notify other components of sales data change
+      const event = new Event('salesDataUpdate')
+      window.dispatchEvent(event)
     } catch (error) {
       console.error("Error creating sale:", error)
     }
@@ -247,6 +251,10 @@ export function SalesManagement() {
       })
       setSelectedSale(null)
       setIsSaleDialogOpen(false)
+      
+      // Dispatch event to notify other components of sales data change
+      const event = new Event('salesDataUpdate')
+      window.dispatchEvent(event)
     } catch (error) {
       console.error("Error updating sale:", error)
     }
@@ -259,6 +267,10 @@ export function SalesManagement() {
       if (error) throw error
 
       setSales(sales.filter((s) => s.id !== saleId))
+      
+      // Dispatch event to notify other components of sales data change
+      const event = new Event('salesDataUpdate')
+      window.dispatchEvent(event)
     } catch (error) {
       console.error("Error deleting sale:", error)
     }
