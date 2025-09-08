@@ -226,6 +226,30 @@ export default function ProductManagement() {
     return updatedRows
   }, [openingStockInputs])
 
+  // Function to calculate total sales from monthly sales data
+  const calculateTotalSales = useCallback((rows: ProductRow[] = productRows) => {
+    console.log("[v0] calculateTotalSales called with rows:", rows.length)
+    
+    const updatedRows = rows.map((row) => {
+      if (!row || !row.monthly_sales) {
+        return row
+      }
+      
+      // Calculate total sales by summing all monthly sales values
+      const totalSales = Object.values(row.monthly_sales).reduce((sum, monthSales) => {
+        return sum + (typeof monthSales === 'number' ? monthSales : 0)
+      }, 0)
+      
+      // Update the total_sales field
+      const updatedRow = { ...row, total_sales: totalSales }
+      
+      return updatedRow
+    })
+    
+    console.log("[v0] calculateTotalSales completed")
+    return updatedRows
+  }, [productRows])
+
   const [filteredRows, setFilteredRows] = useState<ProductRow[]>([])
 
   // Function to fetch sales data from the database and update product rows
@@ -333,15 +357,17 @@ export default function ProductManagement() {
       console.log("[v0] Updated product rows with sales data")
       setProductRows(updatedRows)
       
-      // Recalculate stock values with updated sales data
+      // Recalculate stock values and total sales with updated sales data
       setTimeout(() => {
-        calculateStockValues(updatedRows)
+        const stockUpdatedRows = calculateStockValues(updatedRows)
+        const finalRows = calculateTotalSales(stockUpdatedRows)
+        setProductRows(finalRows)
       }, 100)
 
     } catch (error) {
       console.error("Error in fetchSalesData:", error)
     }
-  }, [productRows, calculateStockValues])
+  }, [productRows, calculateStockValues, calculateTotalSales])
 
   // Helper function to convert month/year to our month key format
   const getMonthKey = (month: number, year: number): string | null => {
@@ -384,9 +410,11 @@ export default function ProductManagement() {
       localStorage.setItem('inventoryCustomerData', JSON.stringify(mockCustomers))
       localStorage.setItem('inventoryWarehouseData', JSON.stringify(mockWarehouses))
       
-      // Calculate stock values for the mock data
+      // Calculate stock values and total sales for the mock data
       setTimeout(() => {
-        calculateStockValues(mockProductRows)
+        const stockUpdatedRows = calculateStockValues(mockProductRows)
+        const finalRows = calculateTotalSales(stockUpdatedRows)
+        setProductRows(finalRows)
       }, 100)
       
       toast({
@@ -571,12 +599,14 @@ export default function ProductManagement() {
       console.log("[v0] Saving initial state to undo stack")
       setUndoStack([JSON.parse(JSON.stringify(productRows))])
       
-      // Calculate initial stock values to ensure proper chain calculation
+      // Calculate initial stock values and total sales to ensure proper chain calculation
       setTimeout(() => {
-        calculateStockValues(productRows)
+        const stockUpdatedRows = calculateStockValues(productRows)
+        const finalRows = calculateTotalSales(stockUpdatedRows)
+        setProductRows(finalRows)
       }, 100)
     }
-  }, [productRows, undoStack.length, calculateStockValues])
+  }, [productRows, undoStack.length, calculateStockValues, calculateTotalSales])
 
   useEffect(() => {
     // Apply search filter whenever searchQuery or productRows change
@@ -677,31 +707,188 @@ export default function ProductManagement() {
     }
   }, [productRows])
 
-  // Save customers to localStorage whenever they change
+  // Extract unique customers from productRows and update customers state
   useEffect(() => {
-    if (customers.length > 0) {
-      localStorage.setItem('inventoryCustomerData', JSON.stringify(customers))
-      // Only show toast if this isn't the initial load
-      if (undoStack.length > 0) {
-        toast({
-          title: "Customers Saved",
-          description: `Successfully saved ${customers.length} customers to localStorage.`,
-          duration: 2000,
-        })
+    const extractUniqueCustomers = () => {
+      const uniqueCustomerNames = new Set<string>()
+      const customerMap = new Map<string, Customer>()
+
+      // Extract unique customer names from productRows
+      productRows.forEach(row => {
+        if (row.customer.name && row.customer.name.trim()) {
+          const customerName = row.customer.name.trim()
+          uniqueCustomerNames.add(customerName)
+          
+          // Create or update customer object
+          if (!customerMap.has(customerName)) {
+            customerMap.set(customerName, {
+              id: row.customer.id || `customer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: customerName
+            })
+          }
+        }
+      })
+
+      // Convert to array
+      const extractedCustomers = Array.from(customerMap.values())
+      
+      // Only update if customers have actually changed
+      const currentCustomerNames = new Set(customers.map(c => c.name))
+      const newCustomerNames = new Set(extractedCustomers.map(c => c.name))
+      
+      const hasChanges = currentCustomerNames.size !== newCustomerNames.size || 
+        !Array.from(currentCustomerNames).every(name => newCustomerNames.has(name))
+      
+      if (hasChanges) {
+        console.log('[ProductManagement] Updating customers from productRows:', extractedCustomers.length, 'unique customers')
+        setCustomers(extractedCustomers)
       }
     }
+
+    // Only extract customers if we have productRows
+    if (productRows.length > 0) {
+      extractUniqueCustomers()
+    }
+  }, [productRows, customers])
+
+  // Save customers to localStorage and database whenever they change
+  useEffect(() => {
+    const saveCustomers = async () => {
+      if (customers.length > 0) {
+        // Save to localStorage
+        localStorage.setItem('inventoryCustomerData', JSON.stringify(customers))
+        
+        // Save to database if available
+        if (canUseSupabase()) {
+          try {
+            console.log('[ProductManagement] Saving customers to database:', customers.length, 'customers')
+            
+            // Upsert customers to database
+            for (const customer of customers) {
+              await supabase
+                .from('customers')
+                .upsert({
+                  id: customer.id,
+                  name: customer.name
+                }, {
+                  onConflict: 'name'
+                })
+            }
+            
+            console.log('[ProductManagement] Successfully saved customers to database')
+            
+            // Dispatch event to notify dashboard to refresh
+            window.dispatchEvent(new Event('localStorageChange'))
+            
+          } catch (error) {
+            console.error('[ProductManagement] Error saving customers to database:', error)
+          }
+        }
+        
+        // Only show toast if this isn't the initial load
+        if (undoStack.length > 0) {
+          toast({
+            title: "Customers Saved",
+            description: `Successfully saved ${customers.length} customers to localStorage and database.`,
+            duration: 2000,
+          })
+        }
+      }
+    }
+
+    saveCustomers()
   }, [customers, undoStack.length, toast])
 
-  // Save warehouses to localStorage whenever they change
+  // Extract unique warehouses from productRows and update warehouses state
   useEffect(() => {
-    if (warehouses.length > 0) {
-      localStorage.setItem('inventoryWarehouseData', JSON.stringify(warehouses))
-      toast({
-        title: "Warehouses Saved",
-        description: `Successfully saved ${warehouses.length} warehouses to localStorage.`,
-        duration: 2000,
+    const extractUniqueWarehouses = () => {
+      const uniqueWarehouseNames = new Set<string>()
+      const warehouseMap = new Map<string, Warehouse>()
+
+      // Extract unique warehouse names from productRows
+      productRows.forEach(row => {
+        if (row.warehouse.name && row.warehouse.name.trim()) {
+          const warehouseName = row.warehouse.name.trim()
+          uniqueWarehouseNames.add(warehouseName)
+          
+          // Create or update warehouse object
+          if (!warehouseMap.has(warehouseName)) {
+            warehouseMap.set(warehouseName, {
+              id: row.warehouse.id || `warehouse-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: warehouseName
+            })
+          }
+        }
       })
+
+      // Convert to array
+      const extractedWarehouses = Array.from(warehouseMap.values())
+      
+      // Only update if warehouses have actually changed
+      const currentWarehouseNames = new Set(warehouses.map(w => w.name))
+      const newWarehouseNames = new Set(extractedWarehouses.map(w => w.name))
+      
+      const hasChanges = currentWarehouseNames.size !== newWarehouseNames.size || 
+        !Array.from(currentWarehouseNames).every(name => newWarehouseNames.has(name))
+      
+      if (hasChanges) {
+        console.log('[ProductManagement] Updating warehouses from productRows:', extractedWarehouses.length, 'unique warehouses')
+        setWarehouses(extractedWarehouses)
+      }
     }
+
+    // Only extract warehouses if we have productRows
+    if (productRows.length > 0) {
+      extractUniqueWarehouses()
+    }
+  }, [productRows, warehouses])
+
+  // Save warehouses to localStorage and database whenever they change
+  useEffect(() => {
+    const saveWarehouses = async () => {
+      if (warehouses.length > 0) {
+        // Save to localStorage
+        localStorage.setItem('inventoryWarehouseData', JSON.stringify(warehouses))
+        
+        // Save to database if available
+        if (canUseSupabase()) {
+          try {
+            console.log('[ProductManagement] Saving warehouses to database:', warehouses.length, 'warehouses')
+            
+            // Upsert warehouses to database
+            for (const warehouse of warehouses) {
+              await supabase
+                .from('warehouses')
+                .upsert({
+                  id: warehouse.id,
+                  name: warehouse.name
+                }, {
+                  onConflict: 'name'
+                })
+            }
+            
+            console.log('[ProductManagement] Successfully saved warehouses to database')
+            
+            // Dispatch event to notify dashboard to refresh
+            window.dispatchEvent(new Event('localStorageChange'))
+            
+          } catch (error) {
+            console.error('[ProductManagement] Error saving warehouses to database:', error)
+          }
+        }
+        
+        // Only show toast if this isn't the initial load
+        if (undoStack.length > 0) {
+          toast({
+            title: "Warehouses Saved",
+            description: `Successfully saved ${warehouses.length} warehouses to localStorage and database.`,
+            duration: 2000,
+          })
+        }
+      }
+    }
+
+    saveWarehouses()
   }, [warehouses, toast])
 
   // Reset undo stack when data is restored from localStorage
@@ -1231,7 +1418,8 @@ export default function ProductManagement() {
         row.warehouse.name.toLowerCase() === warehouseName.toLowerCase()
       ) {
         console.log(`[DEBUG] Found row, recalculating...`)
-        return calculateStockValues([row])[0]
+        const stockUpdatedRow = calculateStockValues([row])[0]
+        return calculateTotalSales([stockUpdatedRow])[0]
       }
       return row
     })
@@ -1571,12 +1759,20 @@ export default function ProductManagement() {
         return
       } else if (field === "customer.name") {
         row.customer.name = value
+        // Ensure customer has an ID if name is provided
+        if (value.trim() && !row.customer.id) {
+          row.customer.id = `customer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        }
         checkForDuplicates(row.product.name, value, rowIndex)
         const groupedRows = groupProductsByNameAndWarehouse(updatedRows, row.product.name, row.warehouse.name)
         setProductRows(groupedRows)
         return
       } else if (field === "warehouse.name") {
         row.warehouse.name = value.toUpperCase()
+        // Ensure warehouse has an ID if name is provided
+        if (value.trim() && !row.warehouse.id) {
+          row.warehouse.id = `warehouse-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        }
         const groupedRows = groupProductsByNameAndWarehouse(updatedRows, row.product.name, value)
         setProductRows(groupedRows)
         return
@@ -1692,11 +1888,13 @@ export default function ProductManagement() {
       if (field.startsWith("monthly_sales.") || field.startsWith("monthly_opening_stock.")) {
         // For both sales and opening stock changes, trigger recalculation
         setTimeout(() => {
-          calculateStockValues(updatedRows)
+          const stockUpdatedRows = calculateStockValues(updatedRows)
+          const finalRows = calculateTotalSales(stockUpdatedRows)
+          setProductRows(finalRows)
         }, 10)
       }
     },
-    [productRows, saveToUndoStack, calculateStockValues],
+    [productRows, saveToUndoStack, calculateStockValues, calculateTotalSales],
   )
 
   const getCurrentFieldValue = (rowIndex: number, field: string): string => {
@@ -1758,15 +1956,16 @@ export default function ProductManagement() {
     saveToUndoStack(productRows)
     const updatedRows = [...productRows, newRow]
     
-    // Calculate stock values immediately with the new row data
-    const recalculatedRows = calculateStockValues(updatedRows)
+    // Calculate stock values and total sales immediately with the new row data
+    const stockUpdatedRows = calculateStockValues(updatedRows)
+    const finalRows = calculateTotalSales(stockUpdatedRows)
     
     // Set the state with the recalculated rows
-    setProductRows(recalculatedRows)
+    setProductRows(finalRows)
     
     // Also update the opening stock inputs to show calculated values
     const initialInputs: { [key: string]: string } = {}
-    recalculatedRows.forEach(row => {
+    finalRows.forEach(row => {
       months.forEach(({ key }) => {
         if (row.monthly_opening_stock[key] !== undefined) {
           const inputKey = `${row.product.name}-${row.warehouse.name}-${key}`
@@ -1844,9 +2043,10 @@ export default function ProductManagement() {
       // Apply grouping to ensure proper positioning
       const groupedRows = groupProductsByNameAndWarehouse(updatedRows, selectedRow.product.name, "")
       
-      // Calculate stock values immediately with the grouped rows
-      const recalculatedRows = calculateStockValues(groupedRows)
-      setProductRows(recalculatedRows)
+      // Calculate stock values and total sales immediately with the grouped rows
+      const stockUpdatedRows = calculateStockValues(groupedRows)
+      const finalRows = calculateTotalSales(stockUpdatedRows)
+      setProductRows(finalRows)
 
       setCurrentlyFocusedCell(null)
     }
@@ -2207,16 +2407,17 @@ export default function ProductManagement() {
     row.monthly_shipments[monthKey] = shipments
     console.log("[v0] Shipment saved to row:", { monthKey, shipments: row.monthly_shipments[monthKey] })
     
-    // Recalculate stock values immediately with the updated data
-    const recalculatedRows = calculateStockValues(updatedRows)
+    // Recalculate stock values and total sales immediately with the updated data
+    const stockUpdatedRows = calculateStockValues(updatedRows)
+    const finalRows = calculateTotalSales(stockUpdatedRows)
     
     // Set the state with the recalculated rows
-    setProductRows(recalculatedRows)
+    setProductRows(finalRows)
     
     // Update opening stock inputs to reflect the recalculated carry-forward values
     // Only update subsequent months, not the current month where shipment was added
     const updatedInputs: { [key: string]: string } = {}
-    recalculatedRows.forEach(recalcRow => {
+    finalRows.forEach(recalcRow => {
       months.forEach(({ key }, monthIndex) => {
         // Skip the first month (Dec 24) as it might have manually entered opening stock
         // Only update subsequent months that get carry-forward values
@@ -2237,7 +2438,7 @@ export default function ProductManagement() {
     
     // IMPORTANT: Save to localStorage immediately to prevent data loss
     console.log('[ProductManagement] Saving shipment data to localStorage immediately')
-    localStorage.setItem('inventoryProductData', JSON.stringify(recalculatedRows))
+    localStorage.setItem('inventoryProductData', JSON.stringify(finalRows))
     
     setEditingShipment(null)
 
@@ -2287,11 +2488,12 @@ export default function ProductManagement() {
       updatedRows[actualRowIndex].monthly_shipments[monthKey] =
         updatedRows[actualRowIndex].monthly_shipments[monthKey]?.filter((_, index) => index !== shipmentIndex) || []
       
-      // Recalculate stock values immediately with the updated data
-      const recalculatedRows = calculateStockValues(updatedRows)
+      // Recalculate stock values and total sales immediately with the updated data
+      const stockUpdatedRows = calculateStockValues(updatedRows)
+      const finalRows = calculateTotalSales(stockUpdatedRows)
       
       // Set the state with the recalculated rows
-      setProductRows(recalculatedRows)
+      setProductRows(finalRows)
     }
   }
 

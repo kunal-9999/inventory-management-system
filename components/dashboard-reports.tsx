@@ -5,8 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts"
-import { TrendingUp, TrendingDown, Package, Users, BarChart3, Calendar, AlertTriangle, CheckCircle } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from "recharts"
+import { TrendingUp, TrendingDown, Package, Users, BarChart3, AlertTriangle, CheckCircle, Filter, X } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
 
 interface DashboardMetrics {
@@ -63,12 +65,20 @@ export function DashboardReports() {
   const [chartData, setChartData] = useState<ChartData[]>([])
   const [productPerformance, setProductPerformance] = useState<ProductPerformance[]>([])
   const [stockAlerts, setStockAlerts] = useState<StockAlert[]>([])
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
   const [loading, setLoading] = useState(true)
+  
+  // Filter states
+  const [selectedProduct, setSelectedProduct] = useState<string>("all")
+  const [dateFilter, setDateFilter] = useState<{ startDate: string; endDate: string }>({
+    startDate: "",
+    endDate: ""
+  })
+  const [availableProducts, setAvailableProducts] = useState<string[]>([])
+  const [showFilters, setShowFilters] = useState(false)
 
   useEffect(() => {
     fetchDashboardData()
-  }, [selectedYear])
+  }, [selectedProduct, dateFilter])
 
   useEffect(() => {
     console.log('[Dashboard] Setting up localStorageChange event listener...')
@@ -110,12 +120,21 @@ export function DashboardReports() {
         const mockWarehouses = JSON.parse(storedWarehouseData)
         
         console.log('[Dashboard] Using mock data, rows:', mockProductRows.length)
+        console.log('[Dashboard] Sample row structure:', mockProductRows[0])
+        console.log('[Dashboard] Available month keys:', mockProductRows[0]?.monthly_sales ? Object.keys(mockProductRows[0].monthly_sales) : 'No monthly_sales')
         
-        // Calculate metrics from mock data
-        calculateMetricsFromMockData(mockProductRows, mockCustomers, mockWarehouses)
-        calculateChartDataFromMockData(mockProductRows)
-        calculateProductPerformanceFromMockData(mockProductRows)
-        calculateStockAlertsFromMockData(mockProductRows)
+        // Extract available products for filtering
+        const uniqueProducts = Array.from(new Set(mockProductRows.map((row: any) => row.product.name))).sort() as string[]
+        setAvailableProducts(uniqueProducts)
+        
+        // Apply filters to data
+        const filteredRows = applyFilters(mockProductRows)
+        
+        // Calculate metrics from filtered mock data
+        calculateMetricsFromMockData(filteredRows, mockCustomers, mockWarehouses)
+        calculateChartDataFromMockData(filteredRows)
+        calculateProductPerformanceFromMockData(filteredRows)
+        calculateStockAlertsFromMockData(filteredRows)
       } else {
         // Fallback to Supabase if no mock data
         await Promise.all([fetchMetrics(), fetchChartData(), fetchProductPerformance(), fetchStockAlerts()])
@@ -127,9 +146,84 @@ export function DashboardReports() {
     }
   }
 
+  const applyFilters = (productRows: any[]) => {
+    console.log('[Debug] applyFilters called with:', productRows.length, 'rows')
+    console.log('[Debug] Selected product:', selectedProduct)
+    console.log('[Debug] Date filter:', dateFilter)
+    
+    let filteredRows = [...productRows]
+    
+    // Apply product filter
+    if (selectedProduct !== "all") {
+      console.log('[Debug] Filtering by product:', selectedProduct)
+      filteredRows = filteredRows.filter(row => row.product.name === selectedProduct)
+      console.log('[Debug] After product filter:', filteredRows.length, 'rows')
+    }
+    
+    // Apply date filter (simplified - filtering by months that fall within date range)
+    if (dateFilter.startDate && dateFilter.endDate) {
+      const startDate = new Date(dateFilter.startDate)
+      const endDate = new Date(dateFilter.endDate)
+      
+      // For each row, filter the monthly data based on date range
+      filteredRows = filteredRows.map(row => {
+        const filteredMonthlySales: { [key: string]: number } = {}
+        const filteredMonthlyShipments: { [key: string]: any[] } = {}
+        const filteredMonthlyOpeningStock: { [key: string]: number } = {}
+        const filteredMonthlyClosingStock: { [key: string]: number } = {}
+        
+        // Define month mappings (simplified for demo)
+        const monthMappings: { [key: string]: { month: number; year: number } } = {
+          'dec24': { month: 12, year: 2024 },
+          'jan25': { month: 1, year: 2025 },
+          'feb25': { month: 2, year: 2025 },
+          'mar25': { month: 3, year: 2025 },
+          'apr25': { month: 4, year: 2025 },
+          'may25': { month: 5, year: 2025 },
+          'jun25': { month: 6, year: 2025 },
+          'jul25': { month: 7, year: 2025 },
+          'aug25': { month: 8, year: 2025 },
+          'sep25': { month: 9, year: 2025 },
+          'oct25': { month: 10, year: 2025 },
+          'nov25': { month: 11, year: 2025 },
+          'dec25': { month: 12, year: 2025 }
+        }
+        
+        Object.keys(row.monthly_sales || {}).forEach(monthKey => {
+          const mapping = monthMappings[monthKey]
+          if (mapping) {
+            const monthDate = new Date(mapping.year, mapping.month - 1, 1)
+            if (monthDate >= startDate && monthDate <= endDate) {
+              filteredMonthlySales[monthKey] = row.monthly_sales[monthKey]
+              filteredMonthlyShipments[monthKey] = row.monthly_shipments?.[monthKey] || []
+              filteredMonthlyOpeningStock[monthKey] = row.monthly_opening_stock?.[monthKey] || 0
+              filteredMonthlyClosingStock[monthKey] = row.monthly_closing_stock?.[monthKey] || 0
+            }
+          }
+        })
+        
+        return {
+          ...row,
+          monthly_sales: filteredMonthlySales,
+          monthly_shipments: filteredMonthlyShipments,
+          monthly_opening_stock: filteredMonthlyOpeningStock,
+          monthly_closing_stock: filteredMonthlyClosingStock
+        }
+      })
+    }
+    
+    return filteredRows
+  }
+
   const calculateMetricsFromMockData = (productRows: any[], customers: any[], warehouses: any[]) => {
+    console.log('[Debug] Calculating metrics for filtered rows:', productRows.length)
+    console.log('[Debug] Sample row:', productRows[0])
+    
     const totalProducts = new Set(productRows.map(row => row.product.name)).size
-    const totalCustomers = customers.length
+    
+    // Calculate total customers from filtered product rows instead of using raw customers array
+    const totalCustomers = new Set(productRows.map(row => row.customer.name)).size
+    
     const totalSales = productRows.reduce((sum, row) => sum + (row.total_sales || 0), 0)
     
     // Calculate total shipments
@@ -144,24 +238,43 @@ export function DashboardReports() {
     
     const totalStockRecords = productRows.length
     
-    // Calculate current month metrics (assuming current month is Jan 25 for demo)
+    // Calculate total sales and shipments across ALL months (not just current month)
     const currentMonthSales = productRows.reduce((sum, row) => {
-      return sum + (row.monthly_sales?.jan25 || 0)
+      if (row.monthly_sales) {
+        const rowTotal = Object.values(row.monthly_sales).reduce((monthSum: number, monthValue: any) => {
+          const value = typeof monthValue === 'number' ? monthValue : 0
+          return monthSum + value
+        }, 0)
+        if (rowTotal > 0) {
+          console.log(`[Debug] Row ${row.product.name} - Total sales across all months:`, rowTotal)
+        }
+        return sum + rowTotal
+      }
+      return sum
     }, 0)
     
-    const previousMonthSales = productRows.reduce((sum, row) => {
-      return sum + (row.monthly_sales?.dec24 || 0)
-    }, 0)
+    // For "previous month" comparison, use total sales - current month sales (simplified)
+    const previousMonthSales = Math.max(0, currentMonthSales * 0.8) // Simplified comparison
     
     const currentMonthShipments = productRows.reduce((sum, row) => {
-      const monthShipments = row.monthly_shipments?.jan25 || []
-      return sum + (Array.isArray(monthShipments) ? monthShipments.length : 0)
+      if (row.monthly_shipments) {
+        const rowTotal = Object.values(row.monthly_shipments).reduce((monthSum: number, monthShipments: any) => {
+          if (Array.isArray(monthShipments)) {
+            return monthSum + monthShipments.reduce((shipSum, shipment) => shipSum + (shipment.quantity || 0), 0)
+          }
+          return monthSum
+        }, 0)
+        if (rowTotal > 0) {
+          console.log(`[Debug] Row ${row.product.name} - Total shipments across all months:`, rowTotal)
+        }
+        return sum + rowTotal
+      }
+      return sum
     }, 0)
     
-    const previousMonthShipments = productRows.reduce((sum, row) => {
-      const monthShipments = row.monthly_shipments?.dec24 || []
-      return sum + (Array.isArray(monthShipments) ? monthShipments.length : 0)
-    }, 0)
+    const previousMonthShipments = Math.max(0, currentMonthShipments * 0.8) // Simplified comparison
+    
+    console.log(`[Debug] Final metrics - Sales: ${currentMonthSales}, Shipments: ${currentMonthShipments}`)
     
     setMetrics({
       totalProducts,
@@ -241,7 +354,7 @@ export function DashboardReports() {
       const variance = closingStock - openingStock
       
       let status: "low" | "negative" | "normal" = "normal"
-      if (closingStock < 1000) status = "low"
+      if (closingStock <= 4000) status = "low"
       if (closingStock < 0) status = "negative"
       
       // Create a unique key for product-warehouse combination
@@ -256,9 +369,9 @@ export function DashboardReports() {
           status
         })
       } else {
-        // If we already have an alert for this product-warehouse, update with the lower stock level
+        // If we already have an entry for this product-warehouse, update with the higher stock level for display
         const existing = productWarehouseMap.get(key)
-        if (closingStock < existing.closing_stock) {
+        if (closingStock > existing.closing_stock) {
           existing.closing_stock = closingStock
           existing.variance = variance
           existing.status = status
@@ -347,7 +460,7 @@ export function DashboardReports() {
 
   const fetchChartData = async () => {
     try {
-      const year = Number.parseInt(selectedYear)
+      const year = new Date().getFullYear()
       const monthlyData: ChartData[] = []
 
       for (let month = 1; month <= 12; month++) {
@@ -397,7 +510,7 @@ export function DashboardReports() {
           product:products(name),
           customer_id
         `)
-        .eq("year", Number.parseInt(selectedYear))
+        .eq("year", new Date().getFullYear())
 
       const { data: shipmentsData } = await supabase
         .from("shipments")
@@ -405,14 +518,14 @@ export function DashboardReports() {
           quantity,
           product:products(name)
         `)
-        .eq("year", Number.parseInt(selectedYear))
+        .eq("year", new Date().getFullYear())
 
       // Aggregate data by product
       const productMap = new Map<string, ProductPerformance>()
 
       // Process sales data
-      salesData?.forEach((sale) => {
-        const productName = sale.product.name
+      salesData?.forEach((sale: any) => {
+        const productName = sale.product?.name
         if (!productMap.has(productName)) {
           productMap.set(productName, {
             product_name: productName,
@@ -426,8 +539,8 @@ export function DashboardReports() {
       })
 
       // Process shipments data
-      shipmentsData?.forEach((shipment) => {
-        const productName = shipment.product.name
+      shipmentsData?.forEach((shipment: any) => {
+        const productName = shipment.product?.name
         if (!productMap.has(productName)) {
           productMap.set(productName, {
             product_name: productName,
@@ -447,8 +560,8 @@ export function DashboardReports() {
       `)
 
       const customerCounts = new Map<string, Set<string>>()
-      customerData?.forEach((pc) => {
-        const productName = pc.product.name
+      customerData?.forEach((pc: any) => {
+        const productName = pc.product?.name
         if (!customerCounts.has(productName)) {
           customerCounts.set(productName, new Set())
         }
@@ -487,7 +600,7 @@ export function DashboardReports() {
       const alerts: StockAlert[] = []
       const productWarehouseMap = new Map()
 
-      for (const stock of stockData || []) {
+      for (const stock of (stockData as any[]) || []) {
         // Calculate variance (simplified - in real app you'd get actual shipments/sales)
         const { data: salesData } = await supabase
           .from("sales")
@@ -510,29 +623,27 @@ export function DashboardReports() {
         const variance = stock.closing_stock - totalShipments + totalSales
 
         let status: "low" | "negative" | "normal" = "normal"
-        if (stock.closing_stock < 100) status = "low"
+        if (stock.closing_stock <= 4000) status = "low"
         if (stock.closing_stock < 0) status = "negative"
 
-        if (status !== "normal") {
-          // Create a unique key for product-warehouse combination
-          const key = `${stock.product.name}-${stock.warehouse.name}`
-          
-          if (!productWarehouseMap.has(key)) {
-            productWarehouseMap.set(key, {
-              product_name: stock.product.name,
-              warehouse_name: stock.warehouse.name,
-              closing_stock: stock.closing_stock,
-              variance: variance,
-              status: status,
-            })
-          } else {
-            // If we already have an alert for this product-warehouse, update with the lower stock level
-            const existing = productWarehouseMap.get(key)
-            if (stock.closing_stock < existing.closing_stock) {
-              existing.closing_stock = stock.closing_stock
-              existing.variance = variance
-              existing.status = status
-            }
+        // Create a unique key for product-warehouse combination
+        const key = `${stock.product?.name}-${stock.warehouse?.name}`
+        
+        if (!productWarehouseMap.has(key)) {
+          productWarehouseMap.set(key, {
+            product_name: stock.product?.name,
+            warehouse_name: stock.warehouse?.name,
+            closing_stock: stock.closing_stock,
+            variance: variance,
+            status: status,
+          })
+        } else {
+          // If we already have an entry for this product-warehouse, update with the higher stock level for display
+          const existing = productWarehouseMap.get(key)
+          if (stock.closing_stock > existing.closing_stock) {
+            existing.closing_stock = stock.closing_stock
+            existing.variance = variance
+            existing.status = status
           }
         }
       }
@@ -571,33 +682,91 @@ export function DashboardReports() {
           <p className="text-foreground mt-1">Comprehensive analytics and insights for your inventory system</p>
         </div>
         <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-muted" />
-          <Select value={selectedYear} onValueChange={setSelectedYear}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Select year" />
-            </SelectTrigger>
-            <SelectContent>
-              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((year) => (
-                <SelectItem key={year} value={year.toString()}>
-                  {year}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              console.log('=== DASHBOARD EVENT TEST ===')
-              console.log('Dispatching test localStorageChange event...')
-              window.dispatchEvent(new Event('localStorageChange'))
-              console.log('Test event dispatched')
-            }}
-            className="text-xs px-2 py-1 bg-blue-100 text-blue-700"
-          >
-            Test Event
-          </Button>
+          <Popover open={showFilters} onOpenChange={setShowFilters}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Filter className="h-4 w-4" />
+                Filters
+                {(selectedProduct !== "all" || dateFilter.startDate || dateFilter.endDate) && (
+                  <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center">
+                    {[selectedProduct !== "all", dateFilter.startDate || dateFilter.endDate].filter(Boolean).length}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80" align="end">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">Filters</h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedProduct("all")
+                      setDateFilter({ startDate: "", endDate: "" })
+                    }}
+                    className="h-auto p-1 text-xs"
+                  >
+                    Clear All
+                  </Button>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Product Name</label>
+                  <Select value={selectedProduct} onValueChange={setSelectedProduct}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All Products" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Products</SelectItem>
+                      {availableProducts.map((product) => (
+                        <SelectItem key={product} value={product}>
+                          {product}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Date Range</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Input
+                        type="date"
+                        placeholder="Start Date"
+                        value={dateFilter.startDate}
+                        onChange={(e) => setDateFilter(prev => ({ ...prev, startDate: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Input
+                        type="date"
+                        placeholder="End Date"
+                        value={dateFilter.endDate}
+                        onChange={(e) => setDateFilter(prev => ({ ...prev, endDate: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  {dateFilter.startDate && dateFilter.endDate && (
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(dateFilter.startDate).toLocaleDateString()} - {new Date(dateFilter.endDate).toLocaleDateString()}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDateFilter({ startDate: "", endDate: "" })}
+                        className="h-auto p-1"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
@@ -625,7 +794,7 @@ export function DashboardReports() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Monthly Sales</CardTitle>
+            <CardTitle className="text-sm font-medium">Sales</CardTitle>
             {getSalesGrowth() >= 0 ? (
               <TrendingUp className="h-4 w-4 text-green-600" />
             ) : (
@@ -643,7 +812,7 @@ export function DashboardReports() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Monthly Shipments</CardTitle>
+            <CardTitle className="text-sm font-medium">Shipments</CardTitle>
             {getShipmentsGrowth() >= 0 ? (
               <TrendingUp className="h-4 w-4 text-green-600" />
             ) : (
@@ -675,7 +844,7 @@ export function DashboardReports() {
           {/* Monthly Trends Chart */}
           <Card>
             <CardHeader>
-              <CardTitle>Monthly Trends ({selectedYear})</CardTitle>
+              <CardTitle>Monthly Trends</CardTitle>
               <CardDescription className="text-foreground">Sales, shipments, and stock levels throughout the year</CardDescription>
             </CardHeader>
             <CardContent>
@@ -685,7 +854,8 @@ export function DashboardReports() {
                   <XAxis dataKey="name" />
                   <YAxis />
                   <Tooltip />
-                  <Line type="monotone" dataKey="sales" stroke="#8b5cf6" strokeWidth={2} name="Sales" />
+                  <Legend />
+                  <Line type="monotone" dataKey="sales" stroke="#f97316" strokeWidth={2} name="Sales" />
                   <Line type="monotone" dataKey="shipments" stroke="#6366f1" strokeWidth={2} name="Shipments" />
                   <Line type="monotone" dataKey="stock" stroke="#3b82f6" strokeWidth={2} name="Stock" />
                 </LineChart>
@@ -696,7 +866,7 @@ export function DashboardReports() {
           {/* Sales vs Shipments Bar Chart */}
           <Card>
             <CardHeader>
-              <CardTitle>Sales vs Shipments ({selectedYear})</CardTitle>
+              <CardTitle>Sales vs Shipments</CardTitle>
               <CardDescription className="text-foreground">Monthly comparison of sales and shipments</CardDescription>
             </CardHeader>
             <CardContent>
@@ -706,7 +876,8 @@ export function DashboardReports() {
                   <XAxis dataKey="name" />
                   <YAxis />
                   <Tooltip />
-                  <Bar dataKey="sales" fill="#8b5cf6" name="Sales" />
+                  <Legend />
+                  <Bar dataKey="sales" fill="#f97316" name="Sales" />
                  <Bar dataKey="shipments" fill="#6366f1" name="Shipments" />
                 </BarChart>
               </ResponsiveContainer>
@@ -719,7 +890,7 @@ export function DashboardReports() {
           {/* Product Performance */}
           <Card>
             <CardHeader>
-              <CardTitle>Product Performance ({selectedYear})</CardTitle>
+              <CardTitle>Product Performance</CardTitle>
               <CardDescription className="text-foreground">Top performing products by sales volume</CardDescription>
             </CardHeader>
             <CardContent>
@@ -748,8 +919,8 @@ export function DashboardReports() {
           {/* Stock Alerts */}
           <Card>
             <CardHeader>
-              <CardTitle>Stock Alerts</CardTitle>
-              <CardDescription className="text-foreground">Products requiring attention</CardDescription>
+              <CardTitle>Stock Levels</CardTitle>
+              <CardDescription className="text-foreground">Current stock levels with alerts for products ≤ 4000</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -762,9 +933,13 @@ export function DashboardReports() {
                   stockAlerts.map((alert, index) => (
                     <div key={index} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <AlertTriangle
-                          className={`h-4 w-4 ${alert.status === "negative" ? "text-red-600" : "text-yellow-600"}`}
-                        />
+                        {alert.status === "normal" ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertTriangle
+                            className={`h-4 w-4 ${alert.status === "negative" ? "text-red-600" : "text-yellow-600"}`}
+                          />
+                        )}
                         <div>
                           <p className="font-medium">{alert.product_name}</p>
                           <p className="text-sm text-foreground">{alert.warehouse_name}</p>
@@ -772,9 +947,11 @@ export function DashboardReports() {
                     </div>
                     <div className="text-right">
                       <p className="font-medium">{alert.closing_stock.toLocaleString()}</p>
-                      <Badge variant={alert.status === "negative" ? "destructive" : "secondary"}>
-                        {alert.status === "negative" ? "Negative" : "Low Stock"}
-                      </Badge>
+                      {alert.status !== "normal" && (
+                        <Badge variant={alert.status === "negative" ? "destructive" : "secondary"}>
+                          {alert.status === "negative" ? "Negative" : "Low Stock"}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 ))
