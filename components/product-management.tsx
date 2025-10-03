@@ -46,7 +46,9 @@ interface ProductRow {
   total_sales: number
   isEditing?: boolean
   isNew?: boolean
-  rowType?: "regular" | "opening_stock"
+  rowType?: "regular" | "opening_stock" | "direct_shipment"
+  monthly_direct_shipment_text?: { [key: string]: string }
+  monthly_direct_shipment_quantity?: { [key: string]: number }
 }
 
 export default function ProductManagement() {
@@ -57,7 +59,24 @@ export default function ProductManagement() {
   const [searchQuery, setSearchQuery] = useState("")
   const [loading, setLoading] = useState(true)
 
-  const [tableZoomLevel, setTableZoomLevel] = useState(60)
+  // Function to determine if a warehouse is a direct shipment based on name patterns
+  const isDirectShipment = (warehouseName: string): boolean => {
+    if (!warehouseName) return true // Empty warehouse names are considered direct shipments
+    
+    const directShipmentPatterns = [
+      'direct',
+      'shipment',
+      'direct shipment',
+      'direct ship',
+      'ds',
+      'directs'
+    ]
+    
+    const lowerName = warehouseName.toLowerCase()
+    return directShipmentPatterns.some(pattern => lowerName.includes(pattern))
+  }
+
+  const [tableZoomLevel, setTableZoomLevel] = useState(80)
   const selectedYear = new Date().getFullYear()
   const [editingCells, setEditingCells] = useState<Set<string>>(new Set())
   const [currentlyFocusedCell, setCurrentlyFocusedCell] = useState<{ rowIndex: number; field: string } | null>(null)
@@ -104,6 +123,7 @@ export default function ProductManagement() {
   const [newlyAddedRowIndex, setNewlyAddedRowIndex] = useState<number | null>(null)
   const [openingStockInputs, setOpeningStockInputs] = useState<{ [key: string]: string }>({})
   const [stockUpdateTrigger, setStockUpdateTrigger] = useState(0)
+  const isCalculatingRef = useRef(false)
   const [showResetConfirmation, setShowResetConfirmation] = useState(false)
 
   // Filter system state
@@ -133,17 +153,25 @@ export default function ProductManagement() {
 
   // Stock calculation function - moved here to avoid hoisting issues
   const calculateStockValues = useCallback((rows: ProductRow[] = productRows) => {
-    console.log("[v0] calculateStockValues called with rows:", rows.length)
-    console.log("[v0] calculateStockValues - first row sample:", rows[0] ? {
-      product: rows[0].product.name,
-      customer: rows[0].customer.name,
-      warehouse: rows[0].warehouse.name,
-      monthly_sales: rows[0].monthly_sales,
-      monthly_opening_stock: rows[0].monthly_opening_stock,
-      monthly_closing_stock: rows[0].monthly_closing_stock
-    } : "No rows")
+    if (isCalculatingRef.current) {
+      console.log("[v0] calculateStockValues already in progress, skipping...")
+      return rows
+    }
     
-    const updatedRows = rows.map((row) => {
+    isCalculatingRef.current = true
+    
+    try {
+      console.log("[v0] calculateStockValues called with rows:", rows.length)
+      console.log("[v0] calculateStockValues - first row sample:", rows[0] ? {
+        product: rows[0].product.name,
+        customer: rows[0].customer.name,
+        warehouse: rows[0].warehouse.name,
+        monthly_sales: rows[0].monthly_sales,
+        monthly_opening_stock: rows[0].monthly_opening_stock,
+        monthly_closing_stock: rows[0].monthly_closing_stock
+      } : "No rows")
+      
+      const updatedRows = rows.map((row) => {
       // Skip rows that don't have the required monthly data
       if (
         !row ||
@@ -155,8 +183,35 @@ export default function ProductManagement() {
         console.log("[v0] Skipping row with undefined monthly data:", row)
         return row
       }
-
+      
+      // Ensure all monthly data structures are properly initialized
       const updatedRow = { ...row }
+      if (!updatedRow.monthly_sales) updatedRow.monthly_sales = {}
+      if (!updatedRow.monthly_shipments) updatedRow.monthly_shipments = {}
+      if (!updatedRow.monthly_opening_stock) updatedRow.monthly_opening_stock = {}
+      if (!updatedRow.monthly_closing_stock) updatedRow.monthly_closing_stock = {}
+      
+      // Initialize all months with default values if they don't exist
+      months.forEach(month => {
+        if (!updatedRow.monthly_sales[month.key]) updatedRow.monthly_sales[month.key] = 0
+        if (!updatedRow.monthly_shipments[month.key]) updatedRow.monthly_shipments[month.key] = []
+        if (!updatedRow.monthly_opening_stock[month.key]) updatedRow.monthly_opening_stock[month.key] = 0
+        if (!updatedRow.monthly_closing_stock[month.key]) updatedRow.monthly_closing_stock[month.key] = 0
+      })
+
+      // For direct shipment rows, use the direct shipment quantity as sales
+      if (updatedRow.rowType === "direct_shipment") {
+        console.log("[v0] Processing direct shipment row as sales:", updatedRow.product.name)
+        
+        // Convert direct shipment quantities to sales for stock calculations
+        months.forEach((month) => {
+          const monthKey = month.key
+          const directShipmentQuantity = updatedRow.monthly_direct_shipment_quantity?.[monthKey] || 0
+          updatedRow.monthly_sales[monthKey] = directShipmentQuantity
+        })
+        
+        return updatedRow
+      }
 
       // Calculate closing stock for each month using the formula: Closing Stock = Opening Stock + Shipments - Sales
       months.forEach((month, monthIndex) => {
@@ -172,27 +227,42 @@ export default function ProductManagement() {
             openingStock = parseFloat(manualInputValue) || 0
             updatedRow.monthly_opening_stock[monthKey] = openingStock
             console.log(`[DEBUG FIX] calculateStockValues - Preserving manual opening stock for ${inputKey}: ${openingStock} (was: ${updatedRow.monthly_opening_stock[monthKey]})`)
+          } else {
+            // Only use existing opening stock value, don't set defaults
+            openingStock = updatedRow.monthly_opening_stock[monthKey] || 0
           }
         }
         
-        // Get sales for this month
-        const sales = updatedRow.monthly_sales[monthKey] || 0
+        // Get sales for this month - exclude direct shipment sales from stock calculations
+        let sales = updatedRow.monthly_sales[monthKey] || 0
         
-        // Calculate total shipment quantity for this month
+        // If this is a direct shipment warehouse, don't include its sales in stock calculations
+        if (isDirectShipment(updatedRow.warehouse.name)) {
+          console.log(`[v0] Skipping direct shipment sales for stock calculation: ${updatedRow.warehouse.name}`)
+          sales = 0
+        }
+        
+        // Calculate total shipment quantity for this month - EXCLUDE direct shipment quantities
         const shipments = updatedRow.monthly_shipments[monthKey] || []
-        const totalShipmentQuantity = shipments.reduce((sum, shipment) => sum + (shipment.quantity || 0), 0)
+        let totalShipmentQuantity = 0
+        
+        // Only include shipments from non-direct shipment warehouses
+        if (!isDirectShipment(updatedRow.warehouse.name)) {
+          totalShipmentQuantity = shipments.reduce((sum, shipment) => sum + (shipment.quantity || 0), 0)
+        }
         
         // Debug: Log individual shipment quantities
         if (shipments.length > 0) {
           console.log(`[v0] Shipment details for ${monthKey}:`, shipments.map(s => ({ number: s.shipment_number, quantity: s.quantity })))
+          console.log(`[v0] Direct shipment warehouse detected: ${updatedRow.warehouse.name}, excluding shipments from stock calculation`)
         }
         
-        // Calculate closing stock: Opening Stock + Shipments - Sales
+        // Calculate closing stock: Opening Stock + Shipments - Sales (excluding direct shipment sales AND direct shipment quantities)
         const closingStock = openingStock + totalShipmentQuantity - sales
         console.log(`[v0] Stock calculation for ${updatedRow.product.name} - ${updatedRow.customer.name} - ${updatedRow.warehouse.name} - ${monthKey}:`)
         console.log(`[v0]   Opening Stock: ${openingStock}`)
         console.log(`[v0]   Total Shipments: ${totalShipmentQuantity}`)
-        console.log(`[v0]   Sales: ${sales}`)
+        console.log(`[v0]   Sales (excluding direct shipments): ${sales}`)
         console.log(`[v0]   Closing Stock: ${openingStock} + ${totalShipmentQuantity} - ${sales} = ${closingStock}`)
         
         // Special debug for CALPRO December
@@ -202,6 +272,15 @@ export default function ProductManagement() {
           console.log(`[DEBUG CALPRO DEC] Expected: 105125 + (-36000) - 8400 = 60725`)
           console.log(`[DEBUG CALPRO DEC] Calculation: ${openingStock} + ${totalShipmentQuantity} - ${sales} = ${closingStock}`)
         }
+        
+        // Special debug for FIN 90
+        if (updatedRow.product.name === 'FIN 90') {
+          console.log(`[DEBUG FIN 90] ${monthKey} - Customer: ${updatedRow.customer.name}, Warehouse: ${updatedRow.warehouse.name}`)
+          console.log(`[DEBUG FIN 90] Opening: ${openingStock}, Shipments: ${totalShipmentQuantity}, Sales: ${sales}, Closing: ${closingStock}`)
+          console.log(`[DEBUG FIN 90] Calculation: ${openingStock} + ${totalShipmentQuantity} - ${sales} = ${closingStock}`)
+        }
+        
+        // Always update the closing stock, even if it's 0
         updatedRow.monthly_closing_stock[monthKey] = closingStock
         
         // Carry forward closing stock to next month's opening stock
@@ -211,19 +290,31 @@ export default function ProductManagement() {
           // Always carry forward the closing stock to become the opening stock for the next month
           // This ensures the chain calculation works properly throughout the year
           updatedRow.monthly_opening_stock[nextMonthKey] = closingStock
+          
+          // Debug logging for carry-forward
+          if (updatedRow.product.name === 'FIN 90') {
+            console.log(`[DEBUG FIN 90] Carrying forward closing stock ${closingStock} to next month ${nextMonthKey} opening stock`)
+          }
         }
       })
 
       return updatedRow
     })
 
-    // Don't trigger undo save for automatic calculations
-    setProductRows(updatedRows)
-    
-    // Trigger a re-render to update the UI
-    setStockUpdateTrigger(prev => prev + 1)
-    
-    return updatedRows
+      // Don't trigger undo save for automatic calculations
+      setProductRows(updatedRows)
+      
+      // Trigger a re-render to update the UI
+      setStockUpdateTrigger(prev => prev + 1)
+      
+      return updatedRows
+    } catch (error) {
+      console.error("[v0] Error in calculateStockValues:", error)
+      return rows
+    } finally {
+      // Reset the calculating flag
+      isCalculatingRef.current = false
+    }
   }, [openingStockInputs])
 
   // Function to calculate total sales from monthly sales data
@@ -248,7 +339,7 @@ export default function ProductManagement() {
     
     console.log("[v0] calculateTotalSales completed")
     return updatedRows
-  }, [productRows])
+  }, [])
 
   const [filteredRows, setFilteredRows] = useState<ProductRow[]>([])
 
@@ -464,6 +555,35 @@ export default function ProductManagement() {
     fetchData()
   }, [fetchData])
 
+  // Function to clear FIN 90 specific data and reset calculations
+  const clearFIN90Data = useCallback(() => {
+    const updatedRows = productRows.map(row => {
+      if (row.product.name === 'FIN 90') {
+        // Reset all monthly data for FIN 90
+        const resetRow = { ...row }
+        months.forEach(month => {
+          resetRow.monthly_opening_stock[month.key] = 0
+          resetRow.monthly_closing_stock[month.key] = 0
+          resetRow.monthly_sales[month.key] = 0
+          resetRow.monthly_shipments[month.key] = []
+        })
+        resetRow.opening_stock = 0
+        resetRow.closing_stock = 0
+        resetRow.total_sales = 0
+        return resetRow
+      }
+      return row
+    })
+    
+    setProductRows(updatedRows)
+    
+    toast({
+      title: "FIN 90 Data Reset",
+      description: "FIN 90 data has been reset. You can now enter fresh opening stock and sales values.",
+      duration: 3000,
+    })
+  }, [productRows, months])
+
   useEffect(() => {
     // Clear any existing sample data from localStorage
     const storedData = localStorage.getItem('inventoryProductData')
@@ -549,11 +669,17 @@ export default function ProductManagement() {
           months.forEach((month, monthIndex) => {
             const monthKey = month.key
             const openingStock = updatedRow.monthly_opening_stock[monthKey] || 0
-            const sales = updatedRow.monthly_sales[monthKey] || 0
+            let sales = updatedRow.monthly_sales[monthKey] || 0
+            
+            // Exclude direct shipment sales from stock calculations
+            if (isDirectShipment(updatedRow.warehouse.name)) {
+              sales = 0
+            }
+            
             const shipments = updatedRow.monthly_shipments[monthKey] || []
             const totalShipmentQuantity = shipments.reduce((sum: number, shipment: any) => sum + (shipment.quantity || 0), 0)
             
-            // Calculate closing stock: Opening Stock + Shipments - Sales
+            // Calculate closing stock: Opening Stock + Shipments - Sales (excluding direct shipment sales)
             const closingStock = openingStock + totalShipmentQuantity - sales
             updatedRow.monthly_closing_stock[monthKey] = closingStock
             
@@ -653,6 +779,7 @@ export default function ProductManagement() {
       fetchSalesData()
     }
   }, [productRows.length, fetchSalesData])
+
 
   // Set up interval to periodically sync sales data
   useEffect(() => {
@@ -1026,29 +1153,34 @@ export default function ProductManagement() {
       return {}
     }
 
-    return rows.reduce((groups: { [key: string]: ProductRow[] }, row) => {
-      // Skip rows with undefined product or warehouse, but allow empty strings
+    // Group all rows by product name AND warehouse name
+    const productGroups: { [key: string]: ProductRow[] } = {}
+
+    rows.forEach((row) => {
+      // Skip rows with undefined product, but allow empty strings
       if (
         !row ||
         row.product === undefined ||
-        row.warehouse === undefined ||
-        row.product === null ||
-        row.warehouse === null
+        row.product === null
       ) {
-        console.log("[v0] Skipping row with undefined product or warehouse:", row)
-        return groups
+        console.log("[v0] Skipping row with undefined product:", row)
+        return
       }
 
       const productName = row.product.name || ""
-      const warehouseName = row.warehouse.name || ""
-      const key = `${productName}-${warehouseName}`
-
-      if (!groups[key]) {
-        groups[key] = []
+      const warehouseName = row.warehouse?.name || ""
+      
+      // Create a unique key using product name AND warehouse name
+      const groupKey = `${productName}|${warehouseName}`
+      
+      if (!productGroups[groupKey]) {
+        productGroups[groupKey] = []
       }
-      groups[key].push(row)
-      return groups
-    }, {})
+      productGroups[groupKey].push(row)
+    })
+
+    console.log("[v0] Grouped rows by product-warehouse:", Object.keys(productGroups))
+    return productGroups
   }, [])
 
   const calculateConsolidatedStock = (groupRows: ProductRow[]) => {
@@ -1111,6 +1243,13 @@ export default function ProductManagement() {
       const consolidatedSales = groupRows.reduce((sum, row) => {
         if (!row || !row.monthly_sales) return sum
         const value = row.monthly_sales[key] || 0
+        
+        // Exclude direct shipment sales from consolidated stock calculations
+        if (isDirectShipment(row.warehouse.name)) {
+          console.log(`[DEBUG FIX] Excluding direct shipment sales from consolidated calculation: ${row.warehouse.name}`)
+          return sum
+        }
+        
         return sum + value
       }, 0)
 
@@ -1149,7 +1288,7 @@ export default function ProductManagement() {
 
 
     
-    // Update local input state
+    // Update local input state - use the same key format as the input rendering
     const inputKey = `${productName}-${warehouseName}-${monthKey}`
     console.log(`[DEBUG FIX] Setting manual input: ${inputKey} = ${value}`)
     setOpeningStockInputs(prev => ({
@@ -1161,23 +1300,17 @@ export default function ProductManagement() {
     
     saveToUndoStack(productRows)
 
-    // Find all rows with the same product-warehouse combination
+    // Find all rows with the same product name (regardless of warehouse)
     const matchingRowIndices: number[] = []
     productRows.forEach((row, index) => {
-      if (
-        row.product.name.toLowerCase() === productName.toLowerCase() &&
-        row.warehouse.name.toLowerCase() === warehouseName.toLowerCase()
-      ) {
+      if (row.product.name.toLowerCase() === productName.toLowerCase()) {
         matchingRowIndices.push(index)
       }
     })
 
     const updatedRows = productRows.map((row, index) => {
-      if (
-        row.product.name.toLowerCase() === productName.toLowerCase() &&
-        row.warehouse.name.toLowerCase() === warehouseName.toLowerCase()
-      ) {
-        // Only set the opening stock on the FIRST row found for this product-warehouse combination
+      if (row.product.name.toLowerCase() === productName.toLowerCase()) {
+        // Only set the opening stock on the FIRST row found for this product
         // Set all other rows to 0 to avoid double counting in consolidation
         const isFirstRow = index === matchingRowIndices[0]
         const openingStockValue = isFirstRow ? numValue : 0
@@ -1205,13 +1338,19 @@ export default function ProductManagement() {
 
         // Get values for calculation
         const openingStock = row.monthly_opening_stock[currentMonthKey] || 0
-        const sales = row.monthly_sales[currentMonthKey] || 0
+        let sales = row.monthly_sales[currentMonthKey] || 0
+
+        // Exclude direct shipment sales from stock calculations
+        if (isDirectShipment(row.warehouse.name)) {
+          console.log(`[DEBUG FIX] Excluding direct shipment sales from row calculation: ${row.warehouse.name}`)
+          sales = 0
+        }
 
         // Calculate total shipment quantity for this month
         const shipments = row.monthly_shipments[currentMonthKey] || []
         const totalShipmentQuantity = shipments.reduce((sum, shipment) => sum + shipment.quantity, 0)
 
-        // Calculate closing stock: Opening Stock + Shipments - Sales
+        // Calculate closing stock: Opening Stock + Shipments - Sales (excluding direct shipment sales)
         const closingStock = openingStock + totalShipmentQuantity - sales
         row.monthly_closing_stock[currentMonthKey] = closingStock
         
@@ -1227,10 +1366,9 @@ export default function ProductManagement() {
         if (monthIndex < months.length - 1) {
           const nextMonthKey = months[monthIndex + 1].key
           
-          // Find all rows with the same product-warehouse combination
+          // Find all rows with the same product name
           const sameGroupRows = rows.filter(r => 
-            r.product.name.toLowerCase() === row.product.name.toLowerCase() &&
-            r.warehouse.name.toLowerCase() === row.warehouse.name.toLowerCase()
+            r.product.name.toLowerCase() === row.product.name.toLowerCase()
           )
           const isFirstRowInGroup = sameGroupRows[0] === row
           
@@ -1250,7 +1388,7 @@ export default function ProductManagement() {
             
             // Update the opening stock input for the next month to show the calculated value
             // Only update if there's no existing manual input for the next month
-            const inputKey = `${row.product.name}-${row.warehouse.name}-${nextMonthKey}`
+            const inputKey = `${row.product.name}-${nextMonthKey}`
             setOpeningStockInputs(prev => {
               // Don't override if user has manually entered a meaningful value for the next month
               // Allow override of default/placeholder values like "-1", "0", or empty strings
@@ -1881,12 +2019,30 @@ export default function ProductManagement() {
             })
           }
         }
+      } else if (field.startsWith("monthly_direct_shipment_text.")) {
+        const monthKey = field.split(".")[1]
+        if (!row.monthly_direct_shipment_text) {
+          row.monthly_direct_shipment_text = {}
+        }
+        row.monthly_direct_shipment_text[monthKey] = value
+      } else if (field.startsWith("monthly_direct_shipment_quantity.")) {
+        const monthKey = field.split(".")[1]
+        if (!row.monthly_direct_shipment_quantity) {
+          row.monthly_direct_shipment_quantity = {}
+        }
+        const quantityValue = Number.parseFloat(value) || 0
+        row.monthly_direct_shipment_quantity[monthKey] = quantityValue
+        
+        // For direct shipment rows, also update monthly_sales to keep them in sync
+        if (row.rowType === "direct_shipment") {
+          row.monthly_sales[monthKey] = quantityValue
+        }
       }
 
       setProductRows(updatedRows)
 
-      if (field.startsWith("monthly_sales.") || field.startsWith("monthly_opening_stock.")) {
-        // For both sales and opening stock changes, trigger recalculation
+      if (field.startsWith("monthly_sales.") || field.startsWith("monthly_opening_stock.") || field.startsWith("monthly_direct_shipment_quantity.")) {
+        // For sales, opening stock, and direct shipment quantity changes, trigger recalculation
         setTimeout(() => {
           const stockUpdatedRows = calculateStockValues(updatedRows)
           const finalRows = calculateTotalSales(stockUpdatedRows)
@@ -1905,6 +2061,14 @@ export default function ProductManagement() {
     if (field === "customer.name") return row.customer.name
     if (field === "warehouse.name") return row.warehouse.name
     if (field === "annual_volume") return row.annual_volume.toString()
+    if (field.startsWith("monthly_direct_shipment_text.")) {
+      const monthKey = field.split(".")[1]
+      return row.monthly_direct_shipment_text?.[monthKey] || ""
+    }
+    if (field.startsWith("monthly_direct_shipment_quantity.")) {
+      const monthKey = field.split(".")[1]
+      return (row.monthly_direct_shipment_quantity?.[monthKey] || 0).toString()
+    }
     if (field.startsWith("monthly_sales.")) {
       const monthKey = field.split(".")[1]
       return (row.monthly_sales[monthKey] || 0).toString()
@@ -1953,6 +2117,95 @@ export default function ProductManagement() {
     }
 
     console.log("[v0] Adding new product, saving current state to undo stack")
+    saveToUndoStack(productRows)
+    const updatedRows = [...productRows, newRow]
+    
+    // Calculate stock values and total sales immediately with the new row data
+    const stockUpdatedRows = calculateStockValues(updatedRows)
+    const finalRows = calculateTotalSales(stockUpdatedRows)
+    
+    // Set the state with the recalculated rows
+    setProductRows(finalRows)
+    
+    // Also update the opening stock inputs to show calculated values
+    const initialInputs: { [key: string]: string } = {}
+    finalRows.forEach(row => {
+      months.forEach(({ key }) => {
+        if (row.monthly_opening_stock[key] !== undefined) {
+          const inputKey = `${row.product.name}-${row.warehouse.name}-${key}`
+          initialInputs[inputKey] = row.monthly_opening_stock[key].toString()
+        }
+      })
+    })
+    setOpeningStockInputs(prev => {
+      // Only update inputs that don't already have manual values
+      const newInputs = { ...prev }
+      Object.entries(initialInputs).forEach(([key, value]) => {
+        const currentValue = newInputs[key]
+        const isPlaceholderValue = !currentValue || currentValue === "" || currentValue === "0" || currentValue === "-1"
+        
+        // Only set if it's a placeholder value or if there's no existing meaningful manual input
+        if (isPlaceholderValue || parseFloat(currentValue) <= 0) {
+          newInputs[key] = value
+        }
+      })
+      return newInputs
+    })
+
+    // Auto-focus on the new row
+    setNewlyAddedRowIndex(productRows.length)
+  }
+
+  const handleAddDirectShipment = () => {
+    const newProductId = `temp-direct-${Date.now()}`
+    const firstMonthKey = months[0]?.key || "dec24"
+    
+    const newRow: ProductRow = {
+      id: newProductId,
+      product: { id: newProductId, name: "", unit: "Kgs" },
+      customer: { id: "", name: "" },
+      warehouse: { id: "", name: "" },
+      unit: "Kgs",
+      annual_volume: 0,
+      monthly_sales: {
+        // Initialize all months with 0
+        ...months.reduce((acc, month) => ({ ...acc, [month.key]: 0 }), {})
+      },
+      monthly_shipments: {
+        // Initialize all months with empty arrays
+        ...months.reduce((acc, month) => ({ 
+          ...acc, 
+          [month.key]: []
+        }), {})
+      },
+      monthly_opening_stock: {
+        // Initialize all months with 0
+        ...months.reduce((acc, month) => ({ 
+          ...acc, 
+          [month.key]: 0
+        }), {})
+      },
+      monthly_closing_stock: {
+        // Initialize all months with 0
+        ...months.reduce((acc, month) => ({ ...acc, [month.key]: 0 }), {})
+      },
+      opening_stock: 0,
+      closing_stock: 0,
+      total_sales: 0,
+      isEditing: false,
+      isNew: true,
+      rowType: "direct_shipment",
+      monthly_direct_shipment_text: {
+        // Initialize all months with empty strings
+        ...months.reduce((acc, month) => ({ ...acc, [month.key]: "" }), {})
+      },
+      monthly_direct_shipment_quantity: {
+        // Initialize all months with 0
+        ...months.reduce((acc, month) => ({ ...acc, [month.key]: 0 }), {})
+      },
+    }
+
+    console.log("[v0] Adding new direct shipment, saving current state to undo stack")
     saveToUndoStack(productRows)
     const updatedRows = [...productRows, newRow]
     
@@ -2594,7 +2847,7 @@ export default function ProductManagement() {
         },
         [shipmentQuantityKey]: {
           color,
-          bold,
+          bold: bold !== undefined ? bold : prev[shipmentQuantityKey]?.bold || false,
         },
       }))
     } else {
@@ -2603,7 +2856,7 @@ export default function ProductManagement() {
         ...prev,
         [cellKey]: {
           color,
-          bold,
+          bold: bold !== undefined ? bold : prev[cellKey]?.bold || false,
         },
       }))
     }
@@ -2904,14 +3157,14 @@ export default function ProductManagement() {
       // Add stock summary data
       const groups = groupRowsByProductWarehouse(filteredRows)
       Object.entries(groups).forEach(([groupKey, groupRows]) => {
-        const [productName, warehouseName] = groupKey.split("-")
+        const productName = groupKey
 
         // Add opening stock row
         const openingStockRow: any = {
           "S.No": "",
           "Product Name": productName,
           "Customer Name": "OPENING STOCK",
-          Warehouse: warehouseName,
+          Warehouse: groupRows[0]?.warehouse?.name || "",
           Unit: groupRows[0]?.product.unit || "",
           "Annual Volume": "",
         }
@@ -2943,7 +3196,7 @@ export default function ProductManagement() {
           "S.No": "",
           "Product Name": productName,
           "Customer Name": "SHIPMENTS",
-          Warehouse: warehouseName,
+          Warehouse: groupRows[0]?.warehouse?.name || "",
           Unit: groupRows[0]?.product.unit || "",
           "Annual Volume": "",
         }
@@ -2962,7 +3215,7 @@ export default function ProductManagement() {
           "S.No": "",
           "Product Name": productName,
           "Customer Name": "CLOSING STOCK",
-          Warehouse: warehouseName,
+          Warehouse: groupRows[0]?.warehouse?.name || "",
           Unit: groupRows[0]?.product.unit || "",
           "Annual Volume": "",
         }
@@ -3614,7 +3867,7 @@ export default function ProductManagement() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setTableZoomLevel(60)}
+              onClick={() => setTableZoomLevel(80)}
               className="text-xs px-3 h-8 hover:bg-slate-100 hover:border-slate-300 transition-all duration-200 rounded-lg font-medium"
             >
               Reset
@@ -3726,27 +3979,69 @@ export default function ProductManagement() {
                       const groups = groupRowsByProductWarehouse(filteredRows)
                       const result: ReactElement[] = []
 
-                      Object.entries(groups).forEach(([groupKey, groupRows]) => {
-                        const [productName, warehouseName] = groupKey.split("-")
+                      // Sort groups by product name, with regular warehouse groups first, then direct shipment groups
+                      const sortedGroups = Object.entries(groups).sort(([keyA, groupRowsA], [keyB, groupRowsB]) => {
+                        // Group keys are now "productName|warehouseName"
+                        const [productNameA, warehouseNameA] = keyA.split('|')
+                        const [productNameB, warehouseNameB] = keyB.split('|')
+                        
+                        // Empty product names (new entries) should appear at the bottom
+                        if (productNameA === "" && productNameB !== "") return 1
+                        if (productNameA !== "" && productNameB === "") return -1
+                        
+                        // First sort by product name alphabetically
+                        const productComparison = productNameA.localeCompare(productNameB)
+                        if (productComparison !== 0) {
+                          return productComparison
+                        }
+                        
+                        // For same product, sort by warehouse name alphabetically
+                        const warehouseComparison = warehouseNameA.localeCompare(warehouseNameB)
+                        if (warehouseComparison !== 0) {
+                          return warehouseComparison
+                        }
+                        
+                        return 0
+                      })
+
+                      sortedGroups.forEach(([groupKey, groupRows]) => {
+                        // Group key is now "productName|warehouseName"
+                        const [productName, warehouseName] = groupKey.split('|')
                         const { consolidatedOpeningStock, consolidatedClosingStock } =
                           calculateConsolidatedStock(groupRows)
 
+                        // Sort rows within group: regular rows first, then direct shipment rows
+                        const sortedGroupRows = groupRows.sort((a, b) => {
+                          // Regular rows come first
+                          if (a.rowType !== "direct_shipment" && b.rowType === "direct_shipment") return -1
+                          if (a.rowType === "direct_shipment" && b.rowType !== "direct_shipment") return 1
+                          // Within same type, maintain original order
+                          return 0
+                        })
+
                         // Add regular rows for this group
-                        groupRows.forEach((row, groupIndex) => {
+                        sortedGroupRows.forEach((row, groupIndex) => {
                           const originalIndex = filteredRows.findIndex(
                             (r) =>
                               r.product.id === row.product.id &&
                               r.customer.id === row.customer.id &&
-                              r.warehouse.id === row.warehouse.id,
+                              r.warehouse.id === row.warehouse.id &&
+                              r.rowType === row.rowType,
                           )
 
                           result.push(
                             <tr
-                              key={`${row.product.id}-${row.customer.id}-${row.warehouse.id}`}
-                              className="bg-white hover:bg-gray-50"
+                              key={`${row.product.id}-${row.customer.id}-${row.warehouse.id}-${row.rowType || 'regular'}`}
+                              className={`${
+                                row.rowType === "direct_shipment" 
+                                  ? "bg-yellow-50 hover:bg-yellow-100 border-l-4 border-yellow-400" 
+                                  : "bg-white hover:bg-gray-50"
+                              }`}
                             >
                               {/* ... existing table row content ... */}
-                              <td className="border border-gray-300 p-2 bg-white">
+                              <td className={`border border-gray-300 p-2 ${
+                                row.rowType === "direct_shipment" ? "bg-yellow-50" : "bg-white"
+                              }`}>
                                 {row.isEditing || isCellEditing(originalIndex, "product.name") ? (
                                   <Input
                                     data-row={originalIndex}
@@ -3808,7 +4103,9 @@ export default function ProductManagement() {
                                   </div>
                                 )}
                               </td>
-                              <td className="border border-gray-300 p-2 bg-white">
+                              <td className={`border border-gray-300 p-2 ${
+                                row.rowType === "direct_shipment" ? "bg-yellow-50" : "bg-white"
+                              }`}>
                                 {row.isEditing || isCellEditing(originalIndex, "customer.name") ? (
                                   <Input
                                     data-row={originalIndex}
@@ -3864,7 +4161,9 @@ export default function ProductManagement() {
                                   </div>
                                 )}
                               </td>
-                              <td className="border border-gray-300 p-2 bg-white">
+                              <td className={`border border-gray-300 p-2 ${
+                                row.rowType === "direct_shipment" ? "bg-yellow-50" : "bg-white"
+                              }`}>
                                 {row.isEditing || isCellEditing(originalIndex, "warehouse.name") ? (
                                   <Input
                                     data-row={originalIndex}
@@ -3920,7 +4219,9 @@ export default function ProductManagement() {
                                   </div>
                                 )}
                               </td>
-                              <td className="border border-gray-300 p-2 bg-white">
+                              <td className={`border border-gray-300 p-2 ${
+                                row.rowType === "direct_shipment" ? "bg-yellow-50" : "bg-white"
+                              }`}>
                                 {row.isEditing || isCellEditing(originalIndex, "unit") ? (
                                   <Select
                                     value={row.unit}
@@ -3947,7 +4248,9 @@ export default function ProductManagement() {
                                   </div>
                                 )}
                               </td>
-                              <td className="border border-gray-300 p-2 bg-white">
+                              <td className={`border border-gray-300 p-2 ${
+                                row.rowType === "direct_shipment" ? "bg-yellow-50" : "bg-white"
+                              }`}>
                                 {row.isEditing || isCellEditing(originalIndex, "annual_volume") ? (
                                   <Input
                                     data-row={originalIndex}
@@ -3985,43 +4288,111 @@ export default function ProductManagement() {
                                 )}
                               </td>
                               {months.map(({ key }) => (
-                                <td key={key} className="border border-gray-300 p-1 min-w-[150px] text-center">
+                                <td key={key} className={`border border-gray-300 p-1 min-w-[150px] text-center ${
+                                  row.rowType === "direct_shipment" ? "bg-yellow-50" : "bg-white"
+                                }`}>
                                   <div className="space-y-1">
-                                    {/* Sales input */}
-                                    <Input
-                                      type="number"
-                                      value={row.monthly_sales[key] || ""}
-                                      onChange={(e) =>
-                                        updateCellValue(originalIndex, `monthly_sales.${key}`, e.target.value)
-                                      }
-                                      className="w-full h-8 text-center border border-gray-300"
-                                      style={getCellStyle(originalIndex, "monthly_sales", key)}
-                                      onFocus={() =>
-                                        setCurrentlyFocusedCell({
-                                          rowIndex: originalIndex,
-                                          field: `monthly_sales.${key}`,
-                                        })
-                                      }
-                                      onBlur={() => stopCellEditing(originalIndex, `monthly_sales.${key}`)}
-                                      onContextMenu={(e) => handleRightClick(e, originalIndex, "monthly_sales", key)}
-                                      data-row={originalIndex}
-                                      data-field={`monthly_sales.${key}`}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                          stopCellEditing(originalIndex, `monthly_sales.${key}`)
-                                        } else if (e.key === "Tab") {
-                                          e.preventDefault()
-                                          handleTabNavigation(originalIndex, `monthly_sales.${key}`, e.shiftKey)
+                                    {row.rowType === "direct_shipment" ? (
+                                      <>
+                                        {/* Text input for direct shipment */}
+                                        <Input
+                                          type="text"
+                                          value={row.monthly_direct_shipment_text?.[key] || ""}
+                                          onChange={(e) =>
+                                            updateCellValue(originalIndex, `monthly_direct_shipment_text.${key}`, e.target.value)
+                                          }
+                                          className="w-full h-8 text-center border border-gray-300 text-xs"
+                                          onFocus={() =>
+                                            setCurrentlyFocusedCell({
+                                              rowIndex: originalIndex,
+                                              field: `monthly_direct_shipment_text.${key}`,
+                                            })
+                                          }
+                                          onBlur={() => stopCellEditing(originalIndex, `monthly_direct_shipment_text.${key}`)}
+                                          onContextMenu={(e) => handleRightClick(e, originalIndex, `monthly_direct_shipment_text.${key}`)}
+                                          data-row={originalIndex}
+                                          data-field={`monthly_direct_shipment_text.${key}`}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                              stopCellEditing(originalIndex, `monthly_direct_shipment_text.${key}`)
+                                            } else if (e.key === "Tab") {
+                                              e.preventDefault()
+                                              handleTabNavigation(originalIndex, `monthly_direct_shipment_text.${key}`, e.shiftKey)
+                                            }
+                                          }}
+                                        />
+                                        {/* Sales input for direct shipment (quantity treated as sales) */}
+                                        <Input
+                                          type="number"
+                                          placeholder="Sales"
+                                          value={row.monthly_sales[key] || ""}
+                                          onChange={(e) => {
+                                            // Update both monthly_sales and monthly_direct_shipment_quantity
+                                            updateCellValue(originalIndex, `monthly_sales.${key}`, e.target.value)
+                                            updateCellValue(originalIndex, `monthly_direct_shipment_quantity.${key}`, e.target.value)
+                                          }}
+                                          className="w-full h-8 text-center border border-gray-300 text-xs placeholder:text-gray-400 placeholder:text-center"
+                                          onFocus={() =>
+                                            setCurrentlyFocusedCell({
+                                              rowIndex: originalIndex,
+                                              field: `monthly_sales.${key}`,
+                                            })
+                                          }
+                                          onBlur={() => stopCellEditing(originalIndex, `monthly_sales.${key}`)}
+                                          onContextMenu={(e) => handleRightClick(e, originalIndex, `monthly_sales.${key}`)}
+                                          data-row={originalIndex}
+                                          data-field={`monthly_sales.${key}`}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                              stopCellEditing(originalIndex, `monthly_sales.${key}`)
+                                            } else if (e.key === "Tab") {
+                                              e.preventDefault()
+                                              handleTabNavigation(originalIndex, `monthly_sales.${key}`, e.shiftKey)
+                                            }
+                                          }}
+                                        />
+                                      </>
+                                    ) : (
+                                      /* Regular sales input for non-direct shipment rows */
+                                      <Input
+                                        type="number"
+                                        value={row.monthly_sales[key] || ""}
+                                        onChange={(e) =>
+                                          updateCellValue(originalIndex, `monthly_sales.${key}`, e.target.value)
                                         }
-                                      }}
-                                    />
+                                        className="w-full h-8 text-center border border-gray-300"
+                                        style={getCellStyle(originalIndex, "monthly_sales", key)}
+                                        onFocus={() =>
+                                          setCurrentlyFocusedCell({
+                                            rowIndex: originalIndex,
+                                            field: `monthly_sales.${key}`,
+                                          })
+                                        }
+                                        onBlur={() => stopCellEditing(originalIndex, `monthly_sales.${key}`)}
+                                        onContextMenu={(e) => handleRightClick(e, originalIndex, "monthly_sales", key)}
+                                        data-row={originalIndex}
+                                        data-field={`monthly_sales.${key}`}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            stopCellEditing(originalIndex, `monthly_sales.${key}`)
+                                          } else if (e.key === "Tab") {
+                                            e.preventDefault()
+                                            handleTabNavigation(originalIndex, `monthly_sales.${key}`, e.shiftKey)
+                                          }
+                                        }}
+                                      />
+                                    )}
                                   </div>
                                 </td>
                               ))}
-                              <td className="border border-gray-300 p-2 text-center bg-white">
+                              <td className={`border border-gray-300 p-2 text-center ${
+                                row.rowType === "direct_shipment" ? "bg-yellow-50" : "bg-white"
+                              }`}>
                                 {row.total_sales.toLocaleString()}
                               </td>
-                              <td className="border border-gray-300 p-2 text-center bg-white">
+                              <td className={`border border-gray-300 p-2 text-center ${
+                                row.rowType === "direct_shipment" ? "bg-yellow-50" : "bg-white"
+                              }`}>
                                 <div className="flex gap-1 justify-center">
                                   <Button
                                     variant="outline"
@@ -4047,18 +4418,21 @@ export default function ProductManagement() {
                           )
                         })
 
-                        result.push(
-                          // Opening Stock Row
-                          <tr key={`${groupKey}-opening-stock`} className="bg-blue-50 border-t-2 border-blue-300">
-                            <td className="border border-gray-300 p-2 font-semibold text-black">Opening Stock</td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.product.name}</td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.warehouse.name}</td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.unit}</td>
+                        // Only show opening stock row if the group contains regular rows (non-direct shipment)
+                        const hasRegularRows = sortedGroupRows.some(row => row.rowType !== "direct_shipment")
+                        if (hasRegularRows) {
+                          result.push(
+                            // Opening Stock Row
+                            <tr key={`${groupKey}-opening-stock`} className="bg-blue-50 border-t-2 border-blue-300">
+                            <td className="border border-gray-300 p-2 font-semibold text-black text-center">Opening Stock</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{productName}</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{warehouseName}</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{groupRows[0]?.unit}</td>
                             <td className="border border-gray-300 p-2"></td>
                             {months.map(({ key }, monthIndex) => {
                               // For opening stock, we want to show the consolidated value that properly carries forward
                               const specificRowOpeningStock = consolidatedOpeningStock[key] || 0
-                              const manualInputValue = openingStockInputs[`${groupRows[0]?.product.name || ""}-${groupRows[0]?.warehouse.name || ""}-${key}`]
+                              const manualInputValue = openingStockInputs[`${productName}-${warehouseName}-${key}`]
                               
                               // For the first month (Dec 24), prioritize manual input
                               // For subsequent months, prioritize consolidated value (carry-forward)
@@ -4075,8 +4449,8 @@ export default function ProductManagement() {
                                         value={displayValue}
                                         onChange={(e) =>
                                           updateGroupOpeningStock(
-                                            groupRows[0]?.product.name || "",
-                                            groupRows[0]?.warehouse.name || "",
+                                            productName,
+                                            warehouseName,
                                             key,
                                             e.target.value,
                                           )
@@ -4098,19 +4472,19 @@ export default function ProductManagement() {
                           </tr>,
 
                           <tr key={`${groupKey}-shipments`} className="bg-orange-50 border-t border-orange-300">
-                            <td className="border border-gray-300 p-2 font-semibold text-black">Shipments</td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.product.name}</td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.warehouse.name}</td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.unit}</td>
+                            <td className="border border-gray-300 p-2 font-semibold text-black text-center">Shipments</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{productName}</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{warehouseName}</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{groupRows[0]?.unit}</td>
                             <td className="border border-gray-300 p-2"></td>
                             {months.map(({ key }) => (
                               <td key={key} className="border border-gray-300 p-1 text-center">
                                 <div className="space-y-1">
                                   {/* Display existing shipments */}
                                   {groupRows[0]?.monthly_shipments?.[key]?.map((shipment, shipmentIndex) => (
-                                    <div key={shipmentIndex} className="flex items-center justify-between text-xs mt-1">
+                                    <div key={shipmentIndex} className="flex items-center justify-center text-xs mt-1 space-x-2">
                                       <span
-                                        className="cursor-pointer"
+                                        className="cursor-pointer text-center"
                                         onContextMenu={(e) =>
                                           handleRightClick(
                                             e,
@@ -4128,7 +4502,7 @@ export default function ProductManagement() {
                                         {shipment.shipment_number}
                                       </span>
                                       <span
-                                        className="cursor-pointer"
+                                        className="cursor-pointer text-center"
                                         onContextMenu={(e) =>
                                           handleRightClick(
                                             e,
@@ -4264,17 +4638,20 @@ export default function ProductManagement() {
                             <td className="border border-gray-300 p-2"></td>
                             <td className="border border-gray-300 p-2"></td>
                           </tr>,
-                        )
+                          )
+                        }
 
-                        result.push(
-                          // Closing Stock Row
-                          <tr key={`${groupKey}-closing-stock`} className="bg-green-50 border-b-4 border-red-500">
-                            <td className="border border-gray-300 p-2 font-semibold text-black">
+                        // Only show closing stock row if the group contains regular rows (non-direct shipment)
+                        if (hasRegularRows) {
+                          result.push(
+                            // Closing Stock Row
+                            <tr key={`${groupKey}-closing-stock`} className="bg-green-50 border-b-4 border-red-500">
+                            <td className="border border-gray-300 p-2 font-semibold text-black text-center">
                               Closing Stock
                             </td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.product.name}</td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.warehouse.name}</td>
-                            <td className="border border-gray-300 p-2 text-black">{groupRows[0]?.unit}</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{productName}</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{warehouseName}</td>
+                            <td className="border border-gray-300 p-2 text-black text-center">{groupRows[0]?.unit}</td>
                             <td className="border border-gray-300 p-2"></td>
                             {months.map(({ key }) => {
                               // For closing stock, use the consolidated closing stock value
@@ -4307,7 +4684,8 @@ export default function ProductManagement() {
                             <td className="border border-gray-300 p-2"></td>
                             <td className="border border-gray-300 p-2"></td>
                           </tr>,
-                        )
+                          )
+                        }
                       })
 
                       return result
@@ -4317,14 +4695,24 @@ export default function ProductManagement() {
                 <tfoot>
                   <tr>
                     <td colSpan={months.length + 6} className="border border-gray-300 p-4 text-center bg-gradient-to-r from-slate-50 to-gray-50">
-                      <Button
-                        size="sm"
-                        onClick={handleAddProduct}
-                        className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-3 rounded-xl font-semibold"
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Product
-                      </Button>
+                      <div className="flex gap-4 justify-center">
+                        <Button
+                          size="sm"
+                          onClick={handleAddProduct}
+                          className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-3 rounded-xl font-semibold"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Product
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleAddDirectShipment}
+                          className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:via-teal-700 hover:to-emerald-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-3 rounded-xl font-semibold"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Direct Shipment
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 </tfoot>
@@ -4430,27 +4818,21 @@ export default function ProductManagement() {
         >
           <button
             className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
-            onClick={() => applyFormatting("red")}
+            onClick={() => applyFormatting("red", true)}
           >
             🔴 Red
           </button>
           <button
             className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
-            onClick={() => applyFormatting("green")}
+            onClick={() => applyFormatting("green", true)}
           >
             🟢 Green
           </button>
           <button
             className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
-            onClick={() => applyFormatting("black")}
+            onClick={() => applyFormatting("black", true)}
           >
             ⚫ Black
-          </button>
-          <button
-            className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 hover:text-slate-900 w-full text-left transition-colors duration-200 rounded-lg mx-1 my-1 font-medium"
-            onClick={() => toggleBold()}
-          >
-            <strong>B</strong> Toggle Bold
           </button>
         </div>
       )}

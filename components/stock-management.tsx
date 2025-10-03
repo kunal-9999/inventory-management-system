@@ -97,8 +97,23 @@ export function StockManagement() {
     unit: "Kgs",
   })
 
+  // Treat "0" (All), empty, null or undefined as no filter
+  const isAllValue = (value: unknown) => value === "0" || value === "" || value === undefined || value === null || value === 0
+
   useEffect(() => {
     fetchData()
+    
+    // Listen for sales data updates
+    const handleSalesDataUpdate = () => {
+      console.log('[StockManagement] Sales data updated, refreshing stock calculations...')
+      fetchFilteredStock()
+    }
+    
+    window.addEventListener('salesDataUpdate', handleSalesDataUpdate)
+    
+    return () => {
+      window.removeEventListener('salesDataUpdate', handleSalesDataUpdate)
+    }
   }, [])
 
   useEffect(() => {
@@ -148,16 +163,18 @@ export function StockManagement() {
         .order("created_at", { ascending: false })
 
       // Apply filters
-      if (filters.year) {
+      if (!isAllValue(filters.year)) {
         query = query.eq("year", Number.parseInt(filters.year))
+      } else {
+        query = query.eq("year", new Date().getFullYear())
       }
-      if (filters.month) {
+      if (!isAllValue(filters.month)) {
         query = query.eq("month", Number.parseInt(filters.month))
       }
-      if (filters.product_id) {
+      if (!isAllValue(filters.product_id)) {
         query = query.eq("product_id", filters.product_id)
       }
-      if (filters.warehouse_id) {
+      if (!isAllValue(filters.warehouse_id)) {
         query = query.eq("warehouse_id", filters.warehouse_id)
       }
 
@@ -173,12 +190,41 @@ export function StockManagement() {
     }
   }
 
+  // Function to determine if a warehouse is a direct shipment based on name patterns
+  const isDirectShipment = (warehouseName: string): boolean => {
+    if (!warehouseName) return true // Empty warehouse names are considered direct shipments
+    
+    const lowerName = warehouseName.toLowerCase()
+    
+    // Special case: WOODS is NEVER a direct shipment
+    if (lowerName === 'woods') {
+      console.log('[StockManagement] WOODS detected - NOT a direct shipment')
+      return false
+    }
+    
+    // Check for exact matches or word boundaries to avoid false positives
+    const directShipmentPatterns = [
+      /\bdirect\b/,
+      /\bshipment\b/,
+      /\bdirect\s+shipment\b/,
+      /\bdirect\s+ship\b/,
+      /\bds\b/,  // Only match DS as a separate word, not within other words
+      /\bdirects\b/
+    ]
+    
+    const isDirect = directShipmentPatterns.some(pattern => pattern.test(lowerName))
+    console.log(`[StockManagement] Warehouse "${warehouseName}" isDirectShipment: ${isDirect}`)
+    return isDirect
+  }
+
   const calculateStockMetrics = async (records: StockRecord[]) => {
     const calculations: Record<string, StockCalculation> = {}
 
     for (const record of records) {
       try {
-        // Get shipments for this product/warehouse/month/year
+        console.log(`[StockManagement] Calculating metrics for record: ${record.product.name} - ${record.warehouse.name} (${record.month}/${record.year})`)
+        
+        // Get shipments for this specific product/warehouse/month/year combination
         const { data: shipments, error: shipmentsError } = await supabase
           .from("shipments")
           .select("quantity")
@@ -189,10 +235,10 @@ export function StockManagement() {
 
         if (shipmentsError) throw shipmentsError
 
-        // Get sales for this product/warehouse/month/year
+        // Get sales for this specific product/warehouse/month/year combination
         const { data: sales, error: salesError } = await supabase
           .from("sales")
-          .select("quantity")
+          .select("quantity, warehouse:warehouses(name)")
           .eq("product_id", record.product_id)
           .eq("warehouse_id", record.warehouse_id)
           .eq("month", record.month)
@@ -200,10 +246,23 @@ export function StockManagement() {
 
         if (salesError) throw salesError
 
-        const totalShipments = shipments?.reduce((sum, s) => sum + s.quantity, 0) || 0
-        const totalSales = sales?.reduce((sum, s) => sum + s.quantity, 0) || 0
+        // Only include shipments from non-direct shipment warehouses
+        let totalShipments = 0
+        if (!isDirectShipment(record.warehouse.name)) {
+          totalShipments = shipments?.reduce((sum, s) => sum + s.quantity, 0) || 0
+        }
+        
+        // Filter out direct shipment sales from stock calculations
+        const regularSales = sales?.filter(sale => {
+          const warehouseName = sale.warehouse?.name || ''
+          return !isDirectShipment(warehouseName)
+        }) || []
+        
+        const totalSales = regularSales.reduce((sum, s) => sum + s.quantity, 0)
         const calculatedClosingStock = record.opening_stock + totalShipments - totalSales
         const variance = record.closing_stock - calculatedClosingStock
+
+        console.log(`[StockManagement] Record ${record.id}: Opening=${record.opening_stock}, Shipments=${totalShipments}, Sales=${totalSales}, Calculated=${calculatedClosingStock}, Actual=${record.closing_stock}, Variance=${variance}`)
 
         calculations[record.id] = {
           opening_stock: record.opening_stock,
@@ -254,6 +313,10 @@ export function StockManagement() {
 
       // Recalculate metrics
       await calculateStockMetrics([data[0], ...stockRecords])
+      
+      // Dispatch event to notify other components of stock data change
+      const event = new Event('stockDataUpdate')
+      window.dispatchEvent(event)
     } catch (error) {
       console.error("Error creating stock record:", error)
     }
@@ -295,6 +358,10 @@ export function StockManagement() {
 
       // Recalculate metrics
       await calculateStockMetrics(updatedRecords)
+      
+      // Dispatch event to notify other components of stock data change
+      const event = new Event('stockDataUpdate')
+      window.dispatchEvent(event)
     } catch (error) {
       console.error("Error updating stock record:", error)
     }
@@ -318,7 +385,7 @@ export function StockManagement() {
       // Get sales for this product/warehouse/month/year
       const { data: sales, error: salesError } = await supabase
         .from("sales")
-        .select("quantity")
+        .select("quantity, warehouse:warehouses(name)")
         .eq("product_id", stockForm.product_id)
         .eq("warehouse_id", stockForm.warehouse_id)
         .eq("month", stockForm.month)
@@ -326,8 +393,23 @@ export function StockManagement() {
 
       if (salesError) throw salesError
 
-      const totalShipments = shipments?.reduce((sum, s) => sum + s.quantity, 0) || 0
-      const totalSales = sales?.reduce((sum, s) => sum + s.quantity, 0) || 0
+      // Get warehouse name for this stock record
+      const warehouse = warehouses.find(w => w.id === stockForm.warehouse_id)
+      const warehouseName = warehouse?.name || ''
+      
+      // Only include shipments from non-direct shipment warehouses
+      let totalShipments = 0
+      if (!isDirectShipment(warehouseName)) {
+        totalShipments = shipments?.reduce((sum, s) => sum + s.quantity, 0) || 0
+      }
+      
+      // Filter out direct shipment sales from stock calculations
+      const regularSales = sales?.filter(sale => {
+        const warehouseName = sale.warehouse?.name || ''
+        return !isDirectShipment(warehouseName)
+      }) || []
+      
+      const totalSales = regularSales.reduce((sum, s) => sum + s.quantity, 0)
       const openingStock = Number.parseFloat(stockForm.opening_stock) || 0
       const calculatedClosing = openingStock + totalShipments - totalSales
 

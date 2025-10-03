@@ -82,9 +82,10 @@ export default function ShipmentManagement() {
                   // Convert month key to readable format
                   const monthLabel = monthKey.charAt(0).toUpperCase() + monthKey.slice(1, 3) + " " + monthKey.slice(3)
                   
-                  // Check if we have a saved status for this shipment
+                  // Check if we have a saved status and link for this shipment
                   const savedShipment = savedShipments.find(s => s.shipment_number === shipment.shipment_number)
                   const statusToUse = savedShipment ? savedShipment.status : (shipment.status || "in_process")
+                  const linkToUse = savedShipment && savedShipment.link ? savedShipment.link : `https://app.gocomet.com/tracking/${shipment.shipment_number}`
                   
                   allShipments.push({
                     id: (shipmentId++).toString(),
@@ -97,7 +98,7 @@ export default function ShipmentManagement() {
                     month: monthLabel,
                     date: new Date().toISOString().split('T')[0], // Use current date for demo
                     status: statusToUse, // Use saved status if available
-                    link: `https://app.gocomet.com/tracking/${shipment.shipment_number}` // Use GoComet tracking URL
+                    link: linkToUse // Use saved link if available, otherwise default GoComet URL
                   })
                 })
               }
@@ -111,21 +112,22 @@ export default function ShipmentManagement() {
         const allShipmentsToShow = allShipments
         console.log('[ShipmentManagement] Showing all shipments:', allShipmentsToShow.length)
         
-        // Clean up any malformed URLs in existing data
+        // Clean up any malformed URLs in existing data, but preserve custom links
         const cleanedShipments = allShipmentsToShow.map(shipment => {
           if (shipment.link) {
             let cleanUrl = shipment.link.trim()
             
-            // Fix common malformation patterns
+            // Only fix malformation if it's clearly a concatenated string issue
             if (cleanUrl.includes('http') && cleanUrl.indexOf('http') > 0) {
               const httpIndex = cleanUrl.indexOf('http')
               cleanUrl = cleanUrl.substring(httpIndex)
             }
             
-            // Validate the cleaned URL
+            // Only reset to default if the URL is completely invalid
             const urlPattern = /^https?:\/\/[^\s]+$/i
             if (!urlPattern.test(cleanUrl)) {
-              // If still invalid, use the default GoComet format
+              // Only use default if the URL is truly malformed
+              console.log(`Invalid URL detected for shipment ${shipment.shipment_number}: ${cleanUrl}`)
               cleanUrl = `https://app.gocomet.com/tracking/${shipment.shipment_number}`
             }
             
@@ -378,8 +380,31 @@ export default function ShipmentManagement() {
       setShipments(updatedShipments)
       setEditingLink(null)
       
+      // Save the updated link to localStorage for persistence
+      try {
+        const shipmentsToSave = updatedShipments.map(shipment => ({
+          id: shipment.id,
+          shipment_number: shipment.shipment_number,
+          product_name: shipment.product_name,
+          customer_name: shipment.customer_name,
+          warehouse_name: shipment.warehouse_name,
+          quantity: shipment.quantity,
+          unit: shipment.unit,
+          month: shipment.month,
+          date: shipment.date,
+          status: shipment.status,
+          link: shipment.link
+        }))
+        
+        localStorage.setItem('shipmentStatusData', JSON.stringify(shipmentsToSave))
+        console.log('Link saved to localStorage:', editingLink.link)
+      } catch (error) {
+        console.error("Error saving link to localStorage:", error)
+      }
+      
       // Show confirmation
       console.log('Link updated successfully:', editingLink.link)
+      alert(`Link updated successfully! The new link will persist across page refreshes.`)
     }
   }
 

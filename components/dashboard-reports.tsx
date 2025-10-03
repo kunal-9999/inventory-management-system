@@ -21,6 +21,8 @@ interface DashboardMetrics {
   previousMonthSales: number
   currentMonthShipments: number
   previousMonthShipments: number
+  currentMonthDirectShipmentSales: number
+  previousMonthDirectShipmentSales: number
 }
 
 interface ChartData {
@@ -28,6 +30,7 @@ interface ChartData {
   sales: number
   shipments: number
   stock: number
+  directShipmentSales: number
 }
 
 interface ProductPerformance {
@@ -60,6 +63,8 @@ export function DashboardReports() {
     previousMonthSales: 0,
     currentMonthShipments: 0,
     previousMonthShipments: 0,
+    currentMonthDirectShipmentSales: 0,
+    previousMonthDirectShipmentSales: 0,
   })
 
   const [chartData, setChartData] = useState<ChartData[]>([])
@@ -73,12 +78,13 @@ export function DashboardReports() {
     startDate: "",
     endDate: ""
   })
+  const [showDirectShipments, setShowDirectShipments] = useState<boolean>(false)
   const [availableProducts, setAvailableProducts] = useState<string[]>([])
   const [showFilters, setShowFilters] = useState(false)
 
   useEffect(() => {
     fetchDashboardData()
-  }, [selectedProduct, dateFilter])
+  }, [selectedProduct, dateFilter, showDirectShipments])
 
   useEffect(() => {
     console.log('[Dashboard] Setting up localStorageChange event listener...')
@@ -150,8 +156,16 @@ export function DashboardReports() {
     console.log('[Debug] applyFilters called with:', productRows.length, 'rows')
     console.log('[Debug] Selected product:', selectedProduct)
     console.log('[Debug] Date filter:', dateFilter)
+    console.log('[Debug] Show direct shipments:', showDirectShipments)
     
     let filteredRows = [...productRows]
+    
+    // Apply direct shipment filter
+    if (showDirectShipments) {
+      console.log('[Debug] Filtering for direct shipments only')
+      filteredRows = filteredRows.filter(row => row.rowType === "direct_shipment")
+      console.log('[Debug] After direct shipment filter:', filteredRows.length, 'rows')
+    }
     
     // Apply product filter
     if (selectedProduct !== "all") {
@@ -240,6 +254,9 @@ export function DashboardReports() {
     
     // Calculate total sales and shipments across ALL months (not just current month)
     const currentMonthSales = productRows.reduce((sum, row) => {
+      // Skip direct shipment rows for regular sales calculation
+      if (row.rowType === "direct_shipment") return sum
+      
       if (row.monthly_sales) {
         const rowTotal = Object.values(row.monthly_sales).reduce((monthSum: number, monthValue: any) => {
           const value = typeof monthValue === 'number' ? monthValue : 0
@@ -253,8 +270,24 @@ export function DashboardReports() {
       return sum
     }, 0)
     
+    // Calculate direct shipment sales separately
+    const currentMonthDirectShipmentSales = productRows.reduce((sum, row) => {
+      if (row.rowType === "direct_shipment" && row.monthly_direct_shipment_quantity) {
+        const rowTotal = Object.values(row.monthly_direct_shipment_quantity).reduce((monthSum: number, monthValue: any) => {
+          const value = typeof monthValue === 'number' ? monthValue : 0
+          return monthSum + value
+        }, 0)
+        if (rowTotal > 0) {
+          console.log(`[Debug] Direct Shipment Row ${row.product.name} - Total direct shipment sales across all months:`, rowTotal)
+        }
+        return sum + rowTotal
+      }
+      return sum
+    }, 0)
+    
     // For "previous month" comparison, use total sales - current month sales (simplified)
     const previousMonthSales = Math.max(0, currentMonthSales * 0.8) // Simplified comparison
+    const previousMonthDirectShipmentSales = Math.max(0, currentMonthDirectShipmentSales * 0.8) // Simplified comparison
     
     const currentMonthShipments = productRows.reduce((sum, row) => {
       if (row.monthly_shipments) {
@@ -286,6 +319,8 @@ export function DashboardReports() {
       previousMonthSales,
       currentMonthShipments,
       previousMonthShipments,
+      currentMonthDirectShipmentSales,
+      previousMonthDirectShipmentSales,
     })
   }
 
@@ -295,14 +330,24 @@ export function DashboardReports() {
     
     const chartData = monthLabels.map((label, index) => {
       const monthKey = months[index]
-      const sales = productRows.reduce((sum, row) => sum + (row.monthly_sales?.[monthKey] || 0), 0)
+      const sales = productRows.reduce((sum, row) => {
+        // Skip direct shipment rows for regular sales
+        if (row.rowType === "direct_shipment") return sum
+        return sum + (row.monthly_sales?.[monthKey] || 0)
+      }, 0)
+      const directShipmentSales = productRows.reduce((sum, row) => {
+        if (row.rowType === "direct_shipment") {
+          return sum + (row.monthly_direct_shipment_quantity?.[monthKey] || 0)
+        }
+        return sum
+      }, 0)
       const shipments = productRows.reduce((sum, row) => {
         const monthShipments = row.monthly_shipments?.[monthKey] || []
         return sum + (Array.isArray(monthShipments) ? monthShipments.reduce((s: number, shipment: any) => s + (shipment.quantity || 0), 0) : 0)
       }, 0)
       const stock = productRows.reduce((sum, row) => sum + (row.monthly_closing_stock?.[monthKey] || 0), 0)
       
-      return { name: label, sales, shipments, stock }
+      return { name: label, sales, shipments, stock, directShipmentSales }
     })
     
     setChartData(chartData)
@@ -452,6 +497,8 @@ export function DashboardReports() {
         previousMonthSales,
         currentMonthShipments,
         previousMonthShipments,
+        currentMonthDirectShipmentSales: 0,
+        previousMonthDirectShipmentSales: 0,
       })
     } catch (error) {
       console.error("Error fetching metrics:", error)
@@ -492,6 +539,7 @@ export function DashboardReports() {
           sales: totalSales,
           shipments: totalShipments,
           stock: totalStock,
+          directShipmentSales: 0,
         })
       }
 
@@ -666,6 +714,11 @@ export function DashboardReports() {
     return ((metrics.currentMonthShipments - metrics.previousMonthShipments) / metrics.previousMonthShipments) * 100
   }
 
+  const getDirectShipmentSalesGrowth = () => {
+    if (metrics.previousMonthDirectShipmentSales === 0) return 0
+    return ((metrics.currentMonthDirectShipmentSales - metrics.previousMonthDirectShipmentSales) / metrics.previousMonthDirectShipmentSales) * 100
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -687,9 +740,9 @@ export function DashboardReports() {
               <Button variant="outline" size="sm" className="gap-2">
                 <Filter className="h-4 w-4" />
                 Filters
-                {(selectedProduct !== "all" || dateFilter.startDate || dateFilter.endDate) && (
+                {(selectedProduct !== "all" || dateFilter.startDate || dateFilter.endDate || showDirectShipments) && (
                   <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center">
-                    {[selectedProduct !== "all", dateFilter.startDate || dateFilter.endDate].filter(Boolean).length}
+                    {[selectedProduct !== "all", dateFilter.startDate || dateFilter.endDate, showDirectShipments].filter(Boolean).length}
                   </Badge>
                 )}
               </Button>
@@ -704,6 +757,7 @@ export function DashboardReports() {
                     onClick={() => {
                       setSelectedProduct("all")
                       setDateFilter({ startDate: "", endDate: "" })
+                      setShowDirectShipments(false)
                     }}
                     className="h-auto p-1 text-xs"
                   >
@@ -726,6 +780,22 @@ export function DashboardReports() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Show Direct Shipments Only</label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="directShipments"
+                      checked={showDirectShipments}
+                      onChange={(e) => setShowDirectShipments(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="directShipments" className="text-sm text-gray-700">
+                      Filter to show only direct shipment data
+                    </label>
+                  </div>
                 </div>
                 
                 <div className="space-y-2">
@@ -771,7 +841,7 @@ export function DashboardReports() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Products</CardTitle>
@@ -837,6 +907,24 @@ export function DashboardReports() {
             <div className="text-2xl font-bold">{metrics.totalStockRecords}</div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Direct Shipment Sales</CardTitle>
+            {getDirectShipmentSalesGrowth() >= 0 ? (
+              <TrendingUp className="h-4 w-4 text-green-600" />
+            ) : (
+              <TrendingDown className="h-4 w-4 text-red-600" />
+            )}
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{metrics.currentMonthDirectShipmentSales.toLocaleString()}</div>
+            <p className={`text-xs ${getDirectShipmentSalesGrowth() >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {getDirectShipmentSalesGrowth() >= 0 ? "+" : ""}
+              {getDirectShipmentSalesGrowth().toFixed(1)}% from last month
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Charts Row */}
@@ -856,6 +944,7 @@ export function DashboardReports() {
                   <Tooltip />
                   <Legend />
                   <Line type="monotone" dataKey="sales" stroke="#f97316" strokeWidth={2} name="Sales" />
+                  <Line type="monotone" dataKey="directShipmentSales" stroke="#8b5cf6" strokeWidth={2} name="Direct Shipment Sales" />
                   <Line type="monotone" dataKey="shipments" stroke="#6366f1" strokeWidth={2} name="Shipments" />
                   <Line type="monotone" dataKey="stock" stroke="#3b82f6" strokeWidth={2} name="Stock" />
                 </LineChart>
@@ -878,7 +967,8 @@ export function DashboardReports() {
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="sales" fill="#f97316" name="Sales" />
-                 <Bar dataKey="shipments" fill="#6366f1" name="Shipments" />
+                  <Bar dataKey="directShipmentSales" fill="#8b5cf6" name="Direct Shipment Sales" />
+                  <Bar dataKey="shipments" fill="#6366f1" name="Shipments" />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
