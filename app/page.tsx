@@ -46,25 +46,25 @@ export default function Home() {
             <nav className="flex justify-end space-x-4">
               <button
                 onClick={() => setActiveTab("dashboard")}
-                className={`hover:text-accent transition-colors ${activeTab === "dashboard" ? "text-accent" : ""}`}
+                className={`hover:text-orange-400 transition-colors ${activeTab === "dashboard" ? "text-orange-400" : ""}`}
               >
                 Dashboard
               </button>
               <button
                 onClick={() => setActiveTab("products")}
-                className={`hover:text-accent transition-colors ${activeTab === "products" ? "text-accent" : ""}`}
+                className={`hover:text-orange-400 transition-colors ${activeTab === "products" ? "text-orange-400" : ""}`}
               >
                 Products
               </button>
               <button
                 onClick={() => setActiveTab("shipments")}
-                className={`hover:text-accent transition-colors ${activeTab === "shipments" ? "text-accent" : ""}`}
+                className={`hover:text-orange-400 transition-colors ${activeTab === "shipments" ? "text-orange-400" : ""}`}
               >
                 Shipments
               </button>
               <button
                 onClick={() => setActiveTab("logistics")}
-                className={`hover:text-accent transition-colors ${activeTab === "logistics" ? "text-accent" : ""}`}
+                className={`hover:text-orange-400 transition-colors ${activeTab === "logistics" ? "text-orange-400" : ""}`}
               >
                 Overseas
               </button>

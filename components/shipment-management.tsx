@@ -602,56 +602,56 @@ export default function ShipmentManagement() {
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+            <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-blue-600">Total Shipments</p>
-                    <p className="text-2xl font-bold text-blue-900">{shipments.length}</p>
+                    <p className="text-sm font-medium text-white">Total Shipments</p>
+                    <p className="text-2xl font-bold text-green-400">{shipments.length}</p>
                   </div>
-                  <Package className="h-8 w-8 text-blue-600" />
+                  <Package className="h-8 w-8 text-white" />
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200">
+            <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-yellow-600">In Process</p>
-                    <p className="text-2xl font-bold text-yellow-900">
+                    <p className="text-sm font-medium text-white">In Process</p>
+                    <p className="text-2xl font-bold text-green-400">
                       {shipments.filter(s => s.status === "in_process").length}
                     </p>
                   </div>
-                  <Calendar className="h-8 w-8 text-yellow-600" />
+                  <Calendar className="h-8 w-8 text-white" />
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+            <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-blue-600">In Transit</p>
-                    <p className="text-2xl font-bold text-blue-900">
+                    <p className="text-sm font-medium text-white">In Transit</p>
+                    <p className="text-2xl font-bold text-green-400">
                       {shipments.filter(s => s.status === "in_transit").length}
                     </p>
                   </div>
-                  <Truck className="h-8 w-8 text-blue-600" />
+                  <Truck className="h-8 w-8 text-white" />
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+            <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-green-600">Delivered</p>
-                    <p className="text-2xl font-bold text-green-900">
+                    <p className="text-sm font-medium text-white">Delivered</p>
+                    <p className="text-2xl font-bold text-green-400">
                       {shipments.filter(s => s.status === "delivered").length}
                     </p>
                   </div>
-                  <MapPin className="h-8 w-8 text-green-600" />
+                  <MapPin className="h-8 w-8 text-white" />
                 </div>
               </CardContent>
             </Card>

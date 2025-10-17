@@ -80,6 +80,7 @@ export function SalesManagement() {
   // Pending inline edits and debounced save timers
   const [pendingQuantities, setPendingQuantities] = useState<Record<string, number>>({})
   const [pendingStockCalculations, setPendingStockCalculations] = useState<Record<string, number>>({})
+  const [extraTextInputs, setExtraTextInputs] = useState<Record<string, string>>({})
   const saveTimersRef = useRef<Record<string, NodeJS.Timeout>>({})
 
   // Filter states
@@ -1352,28 +1353,40 @@ export function SalesManagement() {
                           </div>
 
                           {/* Individual Table for this Product-Warehouse */}
-                          <div className="overflow-x-auto">
-                            <div className="mb-6 p-4 bg-yellow-100 border-4 border-yellow-400 rounded-xl">
-                              <div className="text-center text-xl font-bold text-yellow-800">
-                                TABLE {index + 1}: {productName} - {warehouseName} Data
-                              </div>
+                          <div className="mb-6 p-4 bg-yellow-100 border-4 border-yellow-400 rounded-xl">
+                            <div className="text-center text-xl font-bold text-yellow-800">
+                              TABLE {index + 1}: {productName} - {warehouseName} Data
                             </div>
-                            <Table className="min-w-full border-2 border-gray-300">
-                              <TableHeader>
-                                <TableRow className="bg-gray-100">
-                                  <TableHead className="w-[200px] font-bold">Product Name</TableHead>
-                                  <TableHead className="w-[150px] font-bold">Customer Name</TableHead>
-                                  <TableHead className="w-[100px] font-bold">Warehouse</TableHead>
-                                  <TableHead className="w-[80px] font-bold">Unit</TableHead>
-                                  <TableHead className="w-[100px] font-bold">Annual Volume</TableHead>
-                                  <TableHead className="w-[120px] font-bold">Sales Dec 24</TableHead>
-                                  <TableHead className="w-[120px] font-bold">Sales Jan 25</TableHead>
-                                  <TableHead className="w-[120px] font-bold">Sales Feb 25</TableHead>
-                                  <TableHead className="w-[120px] font-bold">Sales Mar 25</TableHead>
-                                  <TableHead className="w-[120px] font-bold">Sales Apr 25</TableHead>
-                                  <TableHead className="w-[120px] font-bold">Sales May 25</TableHead>
-                                </TableRow>
-                              </TableHeader>
+                          </div>
+                          <div className="border-2 border-gray-300 rounded-lg">
+                            <div 
+                              className="h-[150px] overflow-y-auto overflow-x-auto border-2 border-gray-300 bg-white" 
+                              style={{ 
+                                scrollbarWidth: 'auto',
+                                scrollbarColor: '#6b7280 #f3f4f6',
+                                overflowY: 'auto',
+                                overflowX: 'auto',
+                                scrollbarGutter: 'stable',
+                                maxHeight: '150px'
+                              }}
+                            >
+                              <div className="min-w-full">
+                                <Table className="min-w-full">
+                                <TableHeader className="sticky top-0 z-10 bg-gray-100">
+                                  <TableRow className="bg-gray-100">
+                                    <TableHead className="w-[200px] font-bold sticky left-0 bg-gray-100 z-20">Product Name</TableHead>
+                                    <TableHead className="w-[150px] font-bold">Customer Name</TableHead>
+                                    <TableHead className="w-[100px] font-bold">Warehouse</TableHead>
+                                    <TableHead className="w-[80px] font-bold">Unit</TableHead>
+                                    <TableHead className="w-[100px] font-bold">Annual Volume</TableHead>
+                                    <TableHead className="w-[180px] font-bold">Sales Dec 24</TableHead>
+                                    <TableHead className="w-[180px] font-bold">Sales Jan 25</TableHead>
+                                    <TableHead className="w-[180px] font-bold">Sales Feb 25</TableHead>
+                                    <TableHead className="w-[180px] font-bold">Sales Mar 25</TableHead>
+                                    <TableHead className="w-[180px] font-bold">Sales Apr 25</TableHead>
+                                    <TableHead className="w-[180px] font-bold">Sales May 25</TableHead>
+                                  </TableRow>
+                                </TableHeader>
                               <TableBody>
                                 {/* Customer Sales Rows */}
                                 {(() => {
@@ -1381,7 +1394,7 @@ export function SalesManagement() {
                                   
                                   return uniqueCustomers.map(customerName => (
                                     <TableRow key={customerName} className="hover:bg-gray-50">
-                                      <TableCell className="font-bold">{productName}</TableCell>
+                                      <TableCell className="font-bold sticky left-0 bg-white z-10">{productName}</TableCell>
                                       <TableCell className="font-medium">{customerName}</TableCell>
                                       <TableCell className="font-medium">{warehouseName}</TableCell>
                                       <TableCell>{firstSale.unit}</TableCell>
@@ -1395,29 +1408,45 @@ export function SalesManagement() {
                                         const pending = pendingQuantities[key]
                                         const inputValue = pending !== undefined ? pending : (monthSale?.quantity ?? '')
 
+                                        const extraTextKey = `${key}-extra`
+                                        const extraTextValue = extraTextInputs[extraTextKey] || ''
+
                                         return (
                                           <TableCell key={month}>
-                                            <Input
-                                              type="number"
-                                              value={inputValue}
-                                              className="w-full h-8 border-2"
-                                              onChange={(e) => {
-                                                const newQty = parseFloat(e.target.value)
-                                                const qty = Number.isFinite(newQty) ? newQty : 0
-                                                const customerId = monthSale?.customer_id || groupSales.find(s => s.customer.name === customerName)?.customer_id
-                                                if (!customerId) return
+                                            <div className="flex gap-1">
+                                              <Input
+                                                type="text"
+                                                value={extraTextValue}
+                                                className="w-2/5 h-8 border-2"
+                                                onChange={(e) => {
+                                                  setExtraTextInputs(prev => ({
+                                                    ...prev,
+                                                    [extraTextKey]: e.target.value
+                                                  }))
+                                                }}
+                                              />
+                                              <Input
+                                                type="number"
+                                                value={inputValue}
+                                                className="w-3/5 h-8 border-2"
+                                                onChange={(e) => {
+                                                  const newQty = parseFloat(e.target.value)
+                                                  const qty = Number.isFinite(newQty) ? newQty : 0
+                                                  const customerId = monthSale?.customer_id || groupSales.find(s => s.customer.name === customerName)?.customer_id
+                                                  if (!customerId) return
 
-                                                scheduleSaveQuantity(
-                                                  firstSale.product_id,
-                                                  customerId,
-                                                  firstSale.warehouse_id,
-                                                  firstSale.unit,
-                                                  month,
-                                                  monthYear,
-                                                  qty
-                                                )
-                                              }}
-                                            />
+                                                  scheduleSaveQuantity(
+                                                    firstSale.product_id,
+                                                    customerId,
+                                                    firstSale.warehouse_id,
+                                                    firstSale.unit,
+                                                    month,
+                                                    monthYear,
+                                                    qty
+                                                  )
+                                                }}
+                                              />
+                                            </div>
                                           </TableCell>
                                         )
                                       })}
@@ -1427,7 +1456,7 @@ export function SalesManagement() {
 
                                 {/* Opening Stock Row */}
                                 <TableRow className="bg-blue-100 border-2 border-blue-300">
-                                  <TableCell className="font-bold text-lg">Opening Stock</TableCell>
+                                  <TableCell className="font-bold text-lg sticky left-0 bg-blue-100 z-10">Opening Stock</TableCell>
                                   <TableCell className="font-bold">{productName}</TableCell>
                                   <TableCell className="font-bold">{warehouseName}</TableCell>
                                   <TableCell>{firstSale.unit}</TableCell>
@@ -1452,7 +1481,7 @@ export function SalesManagement() {
 
                                 {/* Shipments Row */}
                                 <TableRow className="bg-orange-100 border-2 border-orange-300">
-                                  <TableCell className="font-bold text-lg">Shipments</TableCell>
+                                  <TableCell className="font-bold text-lg sticky left-0 bg-orange-100 z-10">Shipments</TableCell>
                                   <TableCell className="font-bold">{productName}</TableCell>
                                   <TableCell className="font-bold">{warehouseName}</TableCell>
                                   <TableCell>{firstSale.unit}</TableCell>
@@ -1489,7 +1518,7 @@ export function SalesManagement() {
 
                                 {/* Closing Stock Row */}
                                 <TableRow className="bg-green-100 border-2 border-green-300">
-                                  <TableCell className="font-bold text-lg">Closing Stock</TableCell>
+                                  <TableCell className="font-bold text-lg sticky left-0 bg-green-100 z-10">Closing Stock</TableCell>
                                   <TableCell className="font-bold">{productName}</TableCell>
                                   <TableCell className="font-bold">{warehouseName}</TableCell>
                                   <TableCell>{firstSale.unit}</TableCell>
@@ -1523,7 +1552,9 @@ export function SalesManagement() {
                                   })}
                                 </TableRow>
                               </TableBody>
-                            </Table>
+                                </Table>
+                              </div>
+                            </div>
                           </div>
 
                           {/* Action Buttons */}

@@ -82,6 +82,7 @@ export default function ProductManagement() {
   const [currentlyFocusedCell, setCurrentlyFocusedCell] = useState<{ rowIndex: number; field: string } | null>(null)
 
   const [duplicateAlert, setDuplicateAlert] = useState<string | null>(null)
+  const [extraTextInputs, setExtraTextInputs] = useState<Record<string, string>>({})
 
   const [suggestions, setSuggestions] = useState<{
     items: string[]
@@ -3874,6 +3875,26 @@ export default function ProductManagement() {
             </Button>
           </div>
 
+          {/* Action Buttons */}
+          <div className="flex gap-4 justify-center mb-8">
+            <Button
+              size="sm"
+              onClick={handleAddProduct}
+              className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-3 rounded-xl font-semibold"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Product
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleAddDirectShipment}
+              className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:via-teal-700 hover:to-emerald-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-3 rounded-xl font-semibold"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Direct Shipment
+            </Button>
+          </div>
+
           <div className="border-2 border-slate-200 bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table
@@ -3942,7 +3963,7 @@ export default function ProductManagement() {
                       </div>
                     </th>
                     {months.map(({ key, label }) => (
-                      <th key={key} className="border border-gray-300 text-center p-2 min-w-[150px] bg-gray-100">
+                      <th key={key} className="border border-gray-300 text-center p-2 min-w-[200px] bg-gray-100">
                         <div className="flex items-center justify-center">
                           <span className="text-black font-medium">{label}</span>
                           <Button
@@ -4140,12 +4161,12 @@ export default function ProductManagement() {
                                     }}
                                     onContextMenu={(e) => handleRightClick(e, originalIndex, "customer.name")}
                                     style={getCellStyle(originalIndex, "customer.name")}
-                                    className="h-8 border-0 bg-transparent focus:ring-0 shadow-none outline-none p-1 text-center w-full"
+                                    className="h-8 border-0 bg-transparent focus:ring-0 shadow-none outline-none p-1 text-center w-full font-bold"
                                     autoFocus={isCellEditing(originalIndex, "customer.name")}
                                   />
                                 ) : (
                                   <div
-                                    className="cursor-pointer px-1 py-1 min-h-[32px] flex items-center justify-center"
+                                    className="cursor-pointer px-1 py-1 min-h-[32px] flex items-center justify-center font-bold"
                                     style={getCellStyle(originalIndex, "customer.name")}
                                     onClick={(e) => {
                                       e.preventDefault()
@@ -4322,27 +4343,39 @@ export default function ProductManagement() {
                                           }}
                                         />
                                         {/* Sales input for direct shipment (quantity treated as sales) */}
-                                        <Input
-                                          type="number"
-                                          placeholder="Sales"
-                                          value={row.monthly_sales[key] || ""}
-                                          onChange={(e) => {
-                                            // Update both monthly_sales and monthly_direct_shipment_quantity
-                                            updateCellValue(originalIndex, `monthly_sales.${key}`, e.target.value)
-                                            updateCellValue(originalIndex, `monthly_direct_shipment_quantity.${key}`, e.target.value)
-                                          }}
-                                          className="w-full h-8 text-center border border-gray-300 text-xs placeholder:text-gray-400 placeholder:text-center"
-                                          onFocus={() =>
-                                            setCurrentlyFocusedCell({
-                                              rowIndex: originalIndex,
-                                              field: `monthly_sales.${key}`,
-                                            })
-                                          }
-                                          onBlur={() => stopCellEditing(originalIndex, `monthly_sales.${key}`)}
-                                          onContextMenu={(e) => handleRightClick(e, originalIndex, `monthly_sales.${key}`)}
-                                          data-row={originalIndex}
-                                          data-field={`monthly_sales.${key}`}
-                                          onKeyDown={(e) => {
+                                        <div className="flex gap-1">
+                                          <Input
+                                            type="text"
+                                            value={extraTextInputs[`${originalIndex}-${key}-extra`] || ""}
+                                            onChange={(e) => {
+                                              setExtraTextInputs(prev => ({
+                                                ...prev,
+                                                [`${originalIndex}-${key}-extra`]: e.target.value
+                                              }))
+                                            }}
+                                            className="w-2/5 h-8 text-center border border-gray-300 text-xs placeholder:text-gray-400 placeholder:text-center"
+                                          />
+                                          <Input
+                                            type="number"
+                                            placeholder="Sales"
+                                            value={row.monthly_sales[key] || ""}
+                                            onChange={(e) => {
+                                              // Update both monthly_sales and monthly_direct_shipment_quantity
+                                              updateCellValue(originalIndex, `monthly_sales.${key}`, e.target.value)
+                                              updateCellValue(originalIndex, `monthly_direct_shipment_quantity.${key}`, e.target.value)
+                                            }}
+                                            className="w-3/5 h-8 text-center border border-gray-300 text-xs placeholder:text-gray-400 placeholder:text-center"
+                                            onFocus={() =>
+                                              setCurrentlyFocusedCell({
+                                                rowIndex: originalIndex,
+                                                field: `monthly_sales.${key}`,
+                                              })
+                                            }
+                                            onBlur={() => stopCellEditing(originalIndex, `monthly_sales.${key}`)}
+                                            onContextMenu={(e) => handleRightClick(e, originalIndex, `monthly_sales.${key}`)}
+                                            data-row={originalIndex}
+                                            data-field={`monthly_sales.${key}`}
+                                            onKeyDown={(e) => {
                                             if (e.key === "Enter") {
                                               stopCellEditing(originalIndex, `monthly_sales.${key}`)
                                             } else if (e.key === "Tab") {
@@ -4351,23 +4384,36 @@ export default function ProductManagement() {
                                             }
                                           }}
                                         />
+                                        </div>
                                       </>
                                     ) : (
                                       /* Regular sales input for non-direct shipment rows */
-                                      <Input
-                                        type="number"
-                                        value={row.monthly_sales[key] || ""}
-                                        onChange={(e) =>
-                                          updateCellValue(originalIndex, `monthly_sales.${key}`, e.target.value)
-                                        }
-                                        className="w-full h-8 text-center border border-gray-300"
-                                        style={getCellStyle(originalIndex, "monthly_sales", key)}
-                                        onFocus={() =>
-                                          setCurrentlyFocusedCell({
-                                            rowIndex: originalIndex,
-                                            field: `monthly_sales.${key}`,
-                                          })
-                                        }
+                                      <div className="flex gap-1">
+                                        <Input
+                                          type="text"
+                                          value={extraTextInputs[`${originalIndex}-${key}-extra`] || ""}
+                                          onChange={(e) => {
+                                            setExtraTextInputs(prev => ({
+                                              ...prev,
+                                              [`${originalIndex}-${key}-extra`]: e.target.value
+                                            }))
+                                          }}
+                                          className="w-2/5 h-8 text-center border border-gray-300 text-xs placeholder:text-gray-400 placeholder:text-center"
+                                        />
+                                        <Input
+                                          type="number"
+                                          value={row.monthly_sales[key] || ""}
+                                          onChange={(e) =>
+                                            updateCellValue(originalIndex, `monthly_sales.${key}`, e.target.value)
+                                          }
+                                          className="w-3/5 h-8 text-center border border-gray-300"
+                                          style={getCellStyle(originalIndex, "monthly_sales", key)}
+                                          onFocus={() =>
+                                            setCurrentlyFocusedCell({
+                                              rowIndex: originalIndex,
+                                              field: `monthly_sales.${key}`,
+                                            })
+                                          }
                                         onBlur={() => stopCellEditing(originalIndex, `monthly_sales.${key}`)}
                                         onContextMenu={(e) => handleRightClick(e, originalIndex, "monthly_sales", key)}
                                         data-row={originalIndex}
@@ -4381,6 +4427,7 @@ export default function ProductManagement() {
                                           }
                                         }}
                                       />
+                                      </div>
                                     )}
                                   </div>
                                 </td>
@@ -4692,30 +4739,6 @@ export default function ProductManagement() {
                     })()
                   )}
                 </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={months.length + 6} className="border border-gray-300 p-4 text-center bg-gradient-to-r from-slate-50 to-gray-50">
-                      <div className="flex gap-4 justify-center">
-                        <Button
-                          size="sm"
-                          onClick={handleAddProduct}
-                          className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-3 rounded-xl font-semibold"
-                        >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Product
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={handleAddDirectShipment}
-                          className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:via-teal-700 hover:to-emerald-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 px-6 py-3 rounded-xl font-semibold"
-                        >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Direct Shipment
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                </tfoot>
               </table>
             </div>
           </div>

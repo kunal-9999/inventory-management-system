@@ -16,13 +16,13 @@ interface DashboardMetrics {
   totalCustomers: number
   totalSales: number
   totalShipments: number
-  totalStockRecords: number
   currentMonthSales: number
   previousMonthSales: number
   currentMonthShipments: number
   previousMonthShipments: number
   currentMonthDirectShipmentSales: number
   previousMonthDirectShipmentSales: number
+  directShipmentsCount: number
 }
 
 interface ChartData {
@@ -58,13 +58,13 @@ export function DashboardReports() {
     totalCustomers: 0,
     totalSales: 0,
     totalShipments: 0,
-    totalStockRecords: 0,
     currentMonthSales: 0,
     previousMonthSales: 0,
     currentMonthShipments: 0,
     previousMonthShipments: 0,
     currentMonthDirectShipmentSales: 0,
     previousMonthDirectShipmentSales: 0,
+    directShipmentsCount: 0,
   })
 
   const [chartData, setChartData] = useState<ChartData[]>([])
@@ -240,7 +240,7 @@ export function DashboardReports() {
     
     const totalSales = productRows.reduce((sum, row) => sum + (row.total_sales || 0), 0)
     
-    // Calculate total shipments
+    // Calculate total shipments (count of individual shipments, not quantity)
     const totalShipments = productRows.reduce((sum, row) => {
       if (row.monthly_shipments) {
         return sum + Object.values(row.monthly_shipments).reduce((monthSum: number, monthShipments: any) => {
@@ -250,7 +250,9 @@ export function DashboardReports() {
       return sum
     }, 0)
     
-    const totalStockRecords = productRows.length
+    
+    // Calculate direct shipments count (count of direct shipment rows)
+    const directShipmentsCount = productRows.filter(row => row.rowType === "direct_shipment").length
     
     // Calculate total sales and shipments across ALL months (not just current month)
     const currentMonthSales = productRows.reduce((sum, row) => {
@@ -293,7 +295,7 @@ export function DashboardReports() {
       if (row.monthly_shipments) {
         const rowTotal = Object.values(row.monthly_shipments).reduce((monthSum: number, monthShipments: any) => {
           if (Array.isArray(monthShipments)) {
-            return monthSum + monthShipments.reduce((shipSum, shipment) => shipSum + (shipment.quantity || 0), 0)
+            return monthSum + monthShipments.length // Count individual shipments, not quantities
           }
           return monthSum
         }, 0)
@@ -314,13 +316,13 @@ export function DashboardReports() {
       totalCustomers,
       totalSales,
       totalShipments,
-      totalStockRecords,
       currentMonthSales,
       previousMonthSales,
       currentMonthShipments,
       previousMonthShipments,
       currentMonthDirectShipmentSales,
       previousMonthDirectShipmentSales,
+      directShipmentsCount,
     })
   }
 
@@ -343,7 +345,7 @@ export function DashboardReports() {
       }, 0)
       const shipments = productRows.reduce((sum, row) => {
         const monthShipments = row.monthly_shipments?.[monthKey] || []
-        return sum + (Array.isArray(monthShipments) ? monthShipments.reduce((s: number, shipment: any) => s + (shipment.quantity || 0), 0) : 0)
+        return sum + (Array.isArray(monthShipments) ? monthShipments.length : 0) // Count individual shipments, not quantities
       }, 0)
       const stock = productRows.reduce((sum, row) => sum + (row.monthly_closing_stock?.[monthKey] || 0), 0)
       
@@ -371,11 +373,11 @@ export function DashboardReports() {
       product.total_sales += row.total_sales || 0
       product.customer_count.add(row.customer.name)
       
-      // Count shipments
+      // Count shipments (individual shipments, not quantities)
       if (row.monthly_shipments) {
         Object.values(row.monthly_shipments).forEach((monthShipments: any) => {
           if (Array.isArray(monthShipments)) {
-            product.total_shipments += monthShipments.length
+            product.total_shipments += monthShipments.length // Count individual shipments
           }
         })
       }
@@ -393,9 +395,31 @@ export function DashboardReports() {
     const alerts: StockAlert[] = []
     const productWarehouseMap = new Map()
     
+    // Define months in chronological order to find the most recent
+    const months = ["dec24", "jan25", "feb25", "mar25", "apr25", "may25", "jun25", "jul25", "aug25", "sep25", "oct25", "nov25", "dec25"]
+    
     productRows.forEach(row => {
-      const closingStock = row.monthly_closing_stock?.dec25 || 0
-      const openingStock = row.monthly_opening_stock?.dec25 || 0
+      // Skip direct shipments from stock levels calculation
+      if (row.rowType === "direct_shipment") {
+        return
+      }
+      
+      // Find the most recent month with stock data
+      let closingStock = 0
+      let openingStock = 0
+      let mostRecentMonth = ""
+      
+      // Look for the most recent month with stock data (iterate in reverse order)
+      for (let i = months.length - 1; i >= 0; i--) {
+        const monthKey = months[i]
+        if (row.monthly_closing_stock?.[monthKey] !== undefined && row.monthly_closing_stock[monthKey] !== 0) {
+          closingStock = row.monthly_closing_stock[monthKey]
+          openingStock = row.monthly_opening_stock?.[monthKey] || 0
+          mostRecentMonth = monthKey
+          break
+        }
+      }
+      
       const variance = closingStock - openingStock
       
       let status: "low" | "negative" | "normal" = "normal"
@@ -442,13 +466,11 @@ export function DashboardReports() {
         { count: totalCustomers },
         { count: totalSales },
         { count: totalShipments },
-        { count: totalStockRecords },
       ] = await Promise.all([
         supabase.from("products").select("*", { count: "exact", head: true }),
         supabase.from("customers").select("*", { count: "exact", head: true }),
         supabase.from("sales").select("*", { count: "exact", head: true }),
         supabase.from("shipments").select("*", { count: "exact", head: true }),
-        supabase.from("stock_records").select("*", { count: "exact", head: true }),
       ])
 
       // Get current month sales
@@ -476,7 +498,7 @@ export function DashboardReports() {
         .eq("month", currentMonth)
         .eq("year", currentYear)
 
-      const currentMonthShipments = currentShipmentsData?.reduce((sum, shipment) => sum + shipment.quantity, 0) || 0
+      const currentMonthShipments = currentShipmentsData?.length || 0 // Count individual shipments, not quantities
 
       // Get previous month shipments
       const { data: previousShipmentsData } = await supabase
@@ -485,20 +507,20 @@ export function DashboardReports() {
         .eq("month", previousMonth)
         .eq("year", previousMonthYear)
 
-      const previousMonthShipments = previousShipmentsData?.reduce((sum, shipment) => sum + shipment.quantity, 0) || 0
+      const previousMonthShipments = previousShipmentsData?.length || 0 // Count individual shipments, not quantities
 
       setMetrics({
         totalProducts: totalProducts || 0,
         totalCustomers: totalCustomers || 0,
         totalSales: totalSales || 0,
         totalShipments: totalShipments || 0,
-        totalStockRecords: totalStockRecords || 0,
         currentMonthSales,
         previousMonthSales,
         currentMonthShipments,
         previousMonthShipments,
         currentMonthDirectShipmentSales: 0,
         previousMonthDirectShipmentSales: 0,
+        directShipmentsCount: 0,
       })
     } catch (error) {
       console.error("Error fetching metrics:", error)
@@ -523,7 +545,7 @@ export function DashboardReports() {
           .eq("month", month)
           .eq("year", year)
 
-        const totalShipments = shipmentsData?.reduce((sum, shipment) => sum + shipment.quantity, 0) || 0
+        const totalShipments = shipmentsData?.length || 0 // Count individual shipments, not quantities
 
         // Get stock data
         const { data: stockData } = await supabase
@@ -598,7 +620,7 @@ export function DashboardReports() {
           })
         }
         const product = productMap.get(productName)!
-        product.total_shipments += shipment.quantity
+        product.total_shipments += 1 // Count individual shipments, not quantities
       })
 
       // Get customer counts per product
@@ -728,7 +750,7 @@ export function DashboardReports() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto px-4 space-y-4">
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-bold text-foreground">Dashboard & Reports</h2>
@@ -841,134 +863,150 @@ export function DashboardReports() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-        <Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+        <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Products</CardTitle>
-            <Package className="h-4 w-4 text-muted" />
+            <CardTitle className="text-sm font-medium text-white">Total Products</CardTitle>
+            <Package className="h-4 w-4 text-white" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.totalProducts}</div>
+          <CardContent className="h-16 flex flex-col justify-end">
+            <div className="text-2xl font-bold text-white">{metrics.totalProducts}</div>
+            <div className="text-xs text-transparent">placeholder</div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-            <Users className="h-4 w-4 text-muted" />
+            <CardTitle className="text-sm font-medium text-white">Total Customers</CardTitle>
+            <Users className="h-4 w-4 text-white" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.totalCustomers}</div>
+          <CardContent className="h-16 flex flex-col justify-end">
+            <div className="text-2xl font-bold text-white">{metrics.totalCustomers}</div>
+            <div className="text-xs text-transparent">placeholder</div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Sales</CardTitle>
+            <CardTitle className="text-sm font-medium text-white">Sales in Kgs</CardTitle>
             {getSalesGrowth() >= 0 ? (
-              <TrendingUp className="h-4 w-4 text-green-600" />
+              <TrendingUp className="h-4 w-4 text-green-400" />
             ) : (
-              <TrendingDown className="h-4 w-4 text-red-600" />
+              <TrendingDown className="h-4 w-4 text-red-400" />
             )}
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.currentMonthSales.toLocaleString()}</div>
-            <p className={`text-xs ${getSalesGrowth() >= 0 ? "text-green-600" : "text-red-600"}`}>
+          <CardContent className="h-16 flex flex-col justify-end">
+            <div className="text-2xl font-bold text-white">{metrics.currentMonthSales.toLocaleString()}</div>
+            <p className={`text-xs ${getSalesGrowth() >= 0 ? "text-green-400" : "text-red-400"}`}>
               {getSalesGrowth() >= 0 ? "+" : ""}
               {getSalesGrowth().toFixed(1)}% from last month
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Shipments</CardTitle>
+            <CardTitle className="text-sm font-medium text-white">Shipments</CardTitle>
             {getShipmentsGrowth() >= 0 ? (
-              <TrendingUp className="h-4 w-4 text-green-600" />
+              <TrendingUp className="h-4 w-4 text-green-400" />
             ) : (
-              <TrendingDown className="h-4 w-4 text-red-600" />
+              <TrendingDown className="h-4 w-4 text-red-400" />
             )}
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.currentMonthShipments.toLocaleString()}</div>
-            <p className={`text-xs ${getShipmentsGrowth() >= 0 ? "text-green-600" : "text-red-600"}`}>
+          <CardContent className="h-16 flex flex-col justify-end">
+            <div className="text-2xl font-bold text-white">{metrics.currentMonthShipments.toLocaleString()}</div>
+            <p className={`text-xs ${getShipmentsGrowth() >= 0 ? "text-green-400" : "text-red-400"}`}>
               {getShipmentsGrowth() >= 0 ? "+" : ""}
               {getShipmentsGrowth().toFixed(1)}% from last month
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Stock Records</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.totalStockRecords}</div>
-          </CardContent>
-        </Card>
 
-        <Card>
+        <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Direct Shipment Sales</CardTitle>
+            <CardTitle className="text-sm font-medium text-white">Direct shipments</CardTitle>
             {getDirectShipmentSalesGrowth() >= 0 ? (
-              <TrendingUp className="h-4 w-4 text-green-600" />
+              <TrendingUp className="h-4 w-4 text-green-400" />
             ) : (
-              <TrendingDown className="h-4 w-4 text-red-600" />
+              <TrendingDown className="h-4 w-4 text-red-400" />
             )}
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics.currentMonthDirectShipmentSales.toLocaleString()}</div>
-            <p className={`text-xs ${getDirectShipmentSalesGrowth() >= 0 ? "text-green-600" : "text-red-600"}`}>
+          <CardContent className="h-16 flex flex-col justify-end">
+            <div className="text-2xl font-bold text-white mt-2">{metrics.currentMonthDirectShipmentSales.toLocaleString()}</div>
+            <p className={`text-xs ${getDirectShipmentSalesGrowth() >= 0 ? "text-green-400" : "text-red-400"}`}>
               {getDirectShipmentSalesGrowth() >= 0 ? "+" : ""}
               {getDirectShipmentSalesGrowth().toFixed(1)}% from last month
             </p>
           </CardContent>
         </Card>
+
+        <Card className="bg-slate-800 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-white">Direct Shipments Count</CardTitle>
+            <Package className="h-4 w-4 text-white" />
+          </CardHeader>
+          <CardContent className="h-16 flex flex-col justify-end">
+            <div className="text-2xl font-bold text-white">{metrics.directShipmentsCount}</div>
+            <div className="text-xs text-transparent">placeholder</div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {/* Monthly Trends Chart */}
-          <Card>
+          <Card className="bg-gradient-to-br from-blue-50 to-indigo-100 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardHeader>
-              <CardTitle>Monthly Trends</CardTitle>
-              <CardDescription className="text-foreground">Sales, shipments, and stock levels throughout the year</CardDescription>
+              <CardTitle className="text-slate-800 font-semibold">Monthly Trends</CardTitle>
+              <CardDescription className="text-slate-600">Sales, shipments, and stock levels throughout the year</CardDescription>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
+                  <XAxis dataKey="name" stroke="#475569" />
+                  <YAxis stroke="#475569" />
                   <Tooltip />
                   <Legend />
-                  <Line type="monotone" dataKey="sales" stroke="#f97316" strokeWidth={2} name="Sales" />
-                  <Line type="monotone" dataKey="directShipmentSales" stroke="#8b5cf6" strokeWidth={2} name="Direct Shipment Sales" />
-                  <Line type="monotone" dataKey="shipments" stroke="#6366f1" strokeWidth={2} name="Shipments" />
-                  <Line type="monotone" dataKey="stock" stroke="#3b82f6" strokeWidth={2} name="Stock" />
+                  <Line type="monotone" dataKey="sales" stroke="#1e293b" strokeWidth={2} name="Sales" />
+                  <Line type="monotone" dataKey="shipments" stroke="#0f172a" strokeWidth={2} name="Shipments" />
+                  <Line type="monotone" dataKey="stock" stroke="#334155" strokeWidth={2} name="Stock" />
+                  <Line type="monotone" dataKey="directShipmentSales" stroke="#475569" strokeWidth={2} name="Direct Shipment Sales" />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
 
-          {/* Sales vs Shipments Bar Chart */}
-          <Card>
+          {/* Customer Distribution Chart */}
+          <Card className="bg-gradient-to-br from-blue-50 to-indigo-100 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardHeader>
-              <CardTitle>Sales vs Shipments</CardTitle>
-              <CardDescription className="text-foreground">Monthly comparison of sales and shipments</CardDescription>
+              <CardTitle className="text-blue-900 font-semibold">Customer Distribution</CardTitle>
+              <CardDescription className="text-blue-700">Number of customers per product</CardDescription>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="sales" fill="#f97316" name="Sales" />
-                  <Bar dataKey="directShipmentSales" fill="#8b5cf6" name="Direct Shipment Sales" />
-                  <Bar dataKey="shipments" fill="#6366f1" name="Shipments" />
+                <BarChart data={productPerformance.slice(0, 8)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#bfdbfe" />
+                  <XAxis 
+                    dataKey="product_name" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                    fontSize={12}
+                    stroke="#1e40af"
+                  />
+                  <YAxis 
+                    domain={[0, 'dataMax']}
+                    tickFormatter={(value) => Math.round(value).toString()}
+                    allowDecimals={false}
+                    stroke="#1e40af"
+                  />
+                  <Tooltip 
+                    formatter={(value, name) => [Math.round(Number(value)), 'Customers']}
+                    labelFormatter={(label) => `Product: ${label}`}
+                  />
+                  <Bar dataKey="customer_count" fill="#1e40af" name="Customers" />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -976,29 +1014,29 @@ export function DashboardReports() {
         </div>
 
       {/* Product Performance and Stock Alerts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {/* Product Performance */}
-          <Card>
+          <Card className="bg-gradient-to-br from-emerald-50 to-green-100 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardHeader>
-              <CardTitle>Product Performance</CardTitle>
-              <CardDescription className="text-foreground">Top performing products by sales volume</CardDescription>
+              <CardTitle className="text-emerald-900 font-semibold">Product Performance</CardTitle>
+              <CardDescription className="text-emerald-700">Top performing products by sales volume</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {productPerformance.slice(0, 5).map((product, index) => (
                   <div key={product.product_name} className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-sm font-medium">
+                      <div className="w-8 h-8 rounded-full bg-emerald-200 flex items-center justify-center text-sm font-semibold text-emerald-800">
                         {index + 1}
                       </div>
                       <div>
-                        <p className="font-medium">{product.product_name}</p>
-                        <p className="text-sm text-foreground">{product.customer_count} customers</p>
+                        <p className="font-semibold text-emerald-900">{product.product_name}</p>
+                        <p className="text-sm text-emerald-700">{product.customer_count} customers</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium">{product.total_sales.toLocaleString()}</p>
-                      <p className="text-sm text-foreground">sales</p>
+                      <p className="font-semibold text-emerald-900">{product.total_sales.toLocaleString()}</p>
+                      <p className="text-sm text-emerald-700">sales</p>
                     </div>
                   </div>
                 ))}
@@ -1007,10 +1045,10 @@ export function DashboardReports() {
           </Card>
 
           {/* Stock Alerts */}
-          <Card>
+          <Card className="bg-gradient-to-br from-amber-50 to-yellow-100 border-0 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardHeader>
-              <CardTitle>Stock Levels</CardTitle>
-              <CardDescription className="text-foreground">Current stock levels with alerts for products ≤ 4000</CardDescription>
+              <CardTitle className="text-amber-900 font-semibold">Stock Levels</CardTitle>
+              <CardDescription className="text-amber-700">Current stock levels with alerts for products ≤ 4000</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -1031,12 +1069,12 @@ export function DashboardReports() {
                           />
                         )}
                         <div>
-                          <p className="font-medium">{alert.product_name}</p>
-                          <p className="text-sm text-foreground">{alert.warehouse_name}</p>
+                          <p className="font-semibold text-amber-900">{alert.product_name}</p>
+                          <p className="text-sm text-amber-700">{alert.warehouse_name}</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium">{alert.closing_stock.toLocaleString()}</p>
+                      <p className="font-semibold text-amber-900">{alert.closing_stock.toLocaleString()}</p>
                       {alert.status !== "normal" && (
                         <Badge variant={alert.status === "negative" ? "destructive" : "secondary"}>
                           {alert.status === "negative" ? "Negative" : "Low Stock"}
